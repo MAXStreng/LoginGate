@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.5.0`
+Current version: `v1.6.0`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
@@ -20,6 +20,9 @@ It sends players to a dedicated login world first, handles email registration, p
 - Automatic login world name when `loginworld` is empty: `login_void`, `login_flat`, or `login_normal`.
 - Email verification for `/register` and `/changepwd`.
 - `/bindemail` lets verified players rebind their email address through email verification.
+- Optional email verification. When disabled, registration, password changes, and email rebinding skip the code step.
+- Post-login destination can be the main-world spawn or the player's last saved logout location.
+- Configurable commands can run after a verified player is teleported to the local main world.
 - Passwords stored as PBKDF2 hashes with random salts.
 - Persistent login lock after too many failed password attempts.
 - Per-email verification code cooldown.
@@ -28,6 +31,7 @@ It sends players to a dedicated login world first, handles email registration, p
 - Persistent title/subtitle prompts while the player is not verified.
 - Configurable join, post-register, and post-login custom messages.
 - Fine-grained state messages for first enter, logging in, verification success, locked, and email bind success.
+- Normal message keys can be enabled or disabled individually.
 - New player guide messages after successful registration.
 - Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
 - Multi-server compatibility mode for transferring verified players through BungeeCord / Velocity plugin messages.
@@ -68,6 +72,8 @@ Important entries:
 - `loginworld`: fixed login world name. Leave it empty to let the plugin create `login_<type>`.
 - `login-world-generation.type`: login world terrain type, one of `void`, `flat`, or `normal`.
 - `main-world`: destination world after successful verification.
+- `post-login-location`: post-login destination strategy, either spawn or last saved location.
+- `post-login-commands`: commands to run after a player is teleported to the local main world.
 - `multi-server`: multi-server compatibility settings. Disabled by default; when enabled, verified players can be sent to a proxy target server.
 - `remember-session`: player-controlled short remembered login settings.
 - `verification-code`: maximum wrong code attempts and lock duration.
@@ -78,7 +84,9 @@ Important entries:
 - `storage`: player data storage, one of `yaml`, `sqlite`, `mysql`, or `mariadb`.
 - `default-language`: default language, `zh` or `en`.
 - `message-source`: normal text source. Use `lang` for language files first or `config` for config.yml first.
+- `message-toggles`: per-key switches for normal messages. Keys not listed use `default`.
 - `email-code-cooldown-seconds`: cooldown for requesting a new email code for the same email address.
+- `email-verification.enabled`: whether email verification codes are required.
 - `state-messages`: separate configurable message groups for first enter, logging in, verification success, locked, and email bind success.
 - `custom-messages`: configurable messages shown on join, after registration, and after login.
 - `update-check.enabled`: whether to check for updates during plugin startup.
@@ -93,6 +101,42 @@ Normal messages can be maintained in two ways:
 - `message-source: "config"`: single-file mode. LoginGate reads `messages` and `mail` from `config.yml` first, useful for servers that only want to edit one file.
 
 `state-messages` and `custom-messages` are server-specific message groups and remain in `config.yml`. Existing legacy `messages` and `mail` entries in older configs are kept compatible.
+
+Each normal message key can be toggled in `message-toggles`, for example:
+
+```yaml
+message-toggles:
+  default: true
+  register-help: false
+  transfer-subtitle: false
+```
+
+`state-messages` and `custom-messages` use their own group-level `enabled` switch.
+
+## Post-Login Behavior
+
+Local post-login teleporting is controlled by `post-login-location`:
+
+```yaml
+post-login-location:
+  enabled: true
+  mode: "last-location"
+  save-last-location: true
+```
+
+`mode: "spawn"` sends players to the `main-world` spawn. `mode: "last-location"` sends them to their last saved logout location. In proxy transfer mode, the login server only connects players to the target server.
+
+Commands can run after local main-world teleport:
+
+```yaml
+post-login-commands:
+  enabled: true
+  executor: "console"
+  commands:
+    - "say %player% passed LoginGate verification"
+```
+
+Supported placeholders: `%player%`, `%server%`, `%uuid%`, `%time%`.
 
 ## Multi-Server Mode
 

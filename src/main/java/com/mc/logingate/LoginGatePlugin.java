@@ -254,9 +254,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return;
         }
 
+        PlayerRecord record = getRecord(player);
+        rememberLastLocation(player, record);
         teleportToLogin(player);
         prepareLoginPlayer(player);
-        PlayerRecord record = getRecord(player);
         if (isLocked(player)) {
             sendConfiguredMessages(player, "state-messages.locked.messages");
             showLocked(player);
@@ -277,12 +278,17 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        if (isVerified(player) && !transferring.contains(player.getUniqueId())) {
+            rememberLastLocation(player, getRecord(player));
+            saveRecords();
+        }
         UUID uuid = event.getPlayer().getUniqueId();
         authenticated.remove(uuid);
         transferring.remove(uuid);
         sessions.remove(uuid);
         verificationHoldUntil.remove(uuid);
-        showAllPlayers(event.getPlayer());
+        showAllPlayers(player);
     }
 
     @EventHandler
@@ -660,17 +666,26 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             showVerificationLockedMessage(player);
             return;
         }
-        if (!checkEmailCooldown(player, record.email)) {
+        if (isEmailVerificationEnabled() && !checkEmailCooldown(player, record.email)) {
             return;
         }
 
-        Session session = new Session(SessionMode.CHANGE_CODE);
+        Session session = new Session(isEmailVerificationEnabled() ? SessionMode.CHANGE_CODE : SessionMode.CHANGE_PASSWORD);
         session.email = record.email;
-        session.code = createCode();
-        session.expiresAt = System.currentTimeMillis() + getCodeExpireMillis();
         sessions.put(player.getUniqueId(), session);
-        sendCodeAsync(player, record.email, session.code, mailSubject(player, "change-subject", "Pureblock 修改密码验证码"));
-        player.sendMessage(message(player, "change-code-sent", "&b验证码已发送到你的注册邮箱。&7请在聊天栏输入验证码。"));
+        if (isEmailVerificationEnabled()) {
+            session.code = createCode();
+            session.expiresAt = System.currentTimeMillis() + getCodeExpireMillis();
+            sendCodeAsync(player, record.email, session.code, mailSubject(player, "change-subject", "Pureblock 修改密码验证码"));
+            player.sendMessage(message(player, "change-code-sent", "&b验证码已发送到你的注册邮箱。&7请在聊天栏输入验证码。"));
+        } else if (isVerified(player)) {
+            player.sendMessage(message(player, "email-verification-skipped", "&a邮箱验证已关闭，已跳过验证码步骤。"));
+            player.sendMessage(message(player, "input-new-password", "&d&lPureblock &8| &7请在聊天栏输入新的 &e登录密码&7。"));
+        } else {
+            sessions.remove(player.getUniqueId());
+            player.sendMessage(message(player, "change-password-login-required", "&c邮箱验证关闭时，必须先登录才能修改密码。"));
+            return;
+        }
         showGatePrompt(player);
     }
 
@@ -906,19 +921,24 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             player.sendMessage(message(player, "email-already-used", "&c该邮箱已经绑定其他账号。"));
             return;
         }
-        if (!checkEmailCooldown(player, email)) {
+        if (isEmailVerificationEnabled() && !checkEmailCooldown(player, email)) {
             return;
         }
 
-        Session session = new Session(SessionMode.REGISTER_CODE);
+        Session session = new Session(isEmailVerificationEnabled() ? SessionMode.REGISTER_CODE : SessionMode.REGISTER_PASSWORD);
         session.email = email;
-        session.code = createCode();
-        session.expiresAt = System.currentTimeMillis() + getCodeExpireMillis();
         sessions.put(player.getUniqueId(), session);
 
-        sendCodeAsync(player, email, session.code, mailSubject(player, "register-subject", "Pureblock 注册验证码"));
-        player.sendMessage(message(player, "register-code-sent", "&b验证码已发送到 &e%email%&b。&7请在聊天栏输入验证码。",
-                "%email%", email));
+        if (isEmailVerificationEnabled()) {
+            session.code = createCode();
+            session.expiresAt = System.currentTimeMillis() + getCodeExpireMillis();
+            sendCodeAsync(player, email, session.code, mailSubject(player, "register-subject", "Pureblock 注册验证码"));
+            player.sendMessage(message(player, "register-code-sent", "&b验证码已发送到 &e%email%&b。&7请在聊天栏输入验证码。",
+                    "%email%", email));
+        } else {
+            player.sendMessage(message(player, "email-verification-skipped", "&a邮箱验证已关闭，已跳过验证码步骤。"));
+            player.sendMessage(message(player, "code-ok-set-password", "&a邮箱验证成功。&7请设置登录密码。"));
+        }
         showGatePrompt(player);
     }
 
@@ -1058,18 +1078,24 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             player.sendMessage(message(player, "email-already-used", "&c该邮箱已经绑定其他账号。"));
             return;
         }
-        if (!checkEmailCooldown(player, email)) {
+        if (isEmailVerificationEnabled() && !checkEmailCooldown(player, email)) {
             return;
         }
 
-        Session session = new Session(SessionMode.BIND_CODE);
+        Session session = new Session(isEmailVerificationEnabled() ? SessionMode.BIND_CODE : SessionMode.BIND_EMAIL);
         session.email = email;
-        session.code = createCode();
-        session.expiresAt = System.currentTimeMillis() + getCodeExpireMillis();
-        sessions.put(player.getUniqueId(), session);
-
-        sendCodeAsync(player, email, session.code, mailSubject(player, "bind-subject", "Pureblock 绑定邮箱验证码"));
-        player.sendMessage(message(player, "bind-code-sent", "&b验证码已发送到 &e%email%&b。&7请输入验证码完成绑定。", "%email%", email));
+        if (isEmailVerificationEnabled()) {
+            session.code = createCode();
+            session.expiresAt = System.currentTimeMillis() + getCodeExpireMillis();
+            sessions.put(player.getUniqueId(), session);
+            sendCodeAsync(player, email, session.code, mailSubject(player, "bind-subject", "Pureblock 绑定邮箱验证码"));
+            player.sendMessage(message(player, "bind-code-sent", "&b验证码已发送到 &e%email%&b。&7请输入验证码完成绑定。", "%email%", email));
+        } else {
+            sessions.put(player.getUniqueId(), session);
+            player.sendMessage(message(player, "email-verification-skipped", "&a邮箱验证已关闭，已跳过验证码步骤。"));
+            finishBindEmail(player, session);
+            return;
+        }
         showGatePrompt(player);
     }
 
@@ -1170,7 +1196,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                         "%seconds%", String.valueOf(left),
                         "%target%", target);
                 title = rawMessage(player, "transfer-title", title);
-                player.sendTitle(color(title), color(subtitle), 0, 25, 0);
+                sendTitleIfEnabled(player, title, subtitle, 0, 25, 0);
                 left--;
             }
         }.runTaskTimer(this, 0L, 20L);
@@ -1202,7 +1228,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         long seconds = getLockedSeconds(player);
         String subtitle = rawMessage(player, "locked-subtitle", "&7请等待 &e%seconds% &7秒",
                 "%seconds%", String.valueOf(seconds));
-        player.sendTitle(message(player, "locked-title", "&c&l验证锁定"), color(subtitle), 0, 30, 0);
+        sendTitleIfEnabled(player, message(player, "locked-title", "&c&l验证锁定"), subtitle, 0, 30, 0);
     }
 
     private void showGatePrompt(Player player) {
@@ -1249,7 +1275,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 case BIND_CODE -> rawMessage(player, "subtitle-bind-code", "&7请输入发送到新邮箱的 &e验证码");
             };
         }
-        player.sendTitle(color(title), color(subtitle), 0, 50, 0);
+        sendTitleIfEnabled(player, title, subtitle, 0, 50, 0);
     }
 
     private long getLockedSeconds(Player player) {
@@ -1320,6 +1346,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     private boolean checkCode(Session session, String input) {
         return session.code != null && session.code.equals(input.trim()) && session.expiresAt >= System.currentTimeMillis();
+    }
+
+    private boolean isEmailVerificationEnabled() {
+        return getConfig().getBoolean("email-verification.enabled", true);
     }
 
     private boolean isEmailAvailable(String email, String ownerName) {
@@ -1566,13 +1596,15 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         player.teleport(world.getSpawnLocation().add(0.5, 0, 0.5));
     }
 
-    private void teleportToMain(Player player) {
-        World world = Bukkit.getWorld(getConfig().getString("main-world", "world"));
-        if (world == null) {
+    private boolean teleportToMain(Player player) {
+        Location destination = getVerifiedDestination(player);
+        if (destination == null) {
             player.kickPlayer(message(player, "main-world-missing", "&c主世界不存在，无法完成登录。"));
-            return;
+            return false;
         }
-        player.teleport(world.getSpawnLocation().add(0.5, 0, 0.5));
+        player.teleport(destination);
+        runPostLoginCommands(player);
+        return true;
     }
 
     private void transferToVerifiedDestination(Player player) {
@@ -1627,6 +1659,69 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return;
         }
         player.kickPlayer(message(player, "proxy-transfer-failed", "&c代理转服失败，请稍后重试。"));
+    }
+
+    private Location getVerifiedDestination(Player player) {
+        String mode = getConfig().getString("post-login-location.mode", "spawn");
+        if (getConfig().getBoolean("post-login-location.enabled", true)
+                && mode != null
+                && (mode.equalsIgnoreCase("last-location") || mode.equalsIgnoreCase("last"))) {
+            Location lastLocation = getLastLocation(getRecord(player));
+            if (lastLocation != null) {
+                return lastLocation;
+            }
+        }
+
+        World world = Bukkit.getWorld(getConfig().getString("main-world", "world"));
+        return world == null ? null : world.getSpawnLocation().add(0.5, 0, 0.5);
+    }
+
+    private Location getLastLocation(PlayerRecord record) {
+        if (record == null || record.lastWorld == null || record.lastWorld.isBlank()) {
+            return null;
+        }
+        World world = Bukkit.getWorld(record.lastWorld);
+        if (world == null) {
+            return null;
+        }
+        return new Location(world, record.lastX, record.lastY, record.lastZ, record.lastYaw, record.lastPitch);
+    }
+
+    private void rememberLastLocation(Player player, PlayerRecord record) {
+        if (record == null || !getConfig().getBoolean("post-login-location.save-last-location", true)) {
+            return;
+        }
+        Location location = player.getLocation();
+        if (location.getWorld() == null || isLoginWorld(location.getWorld())) {
+            return;
+        }
+        record.lastWorld = location.getWorld().getName();
+        record.lastX = location.getX();
+        record.lastY = location.getY();
+        record.lastZ = location.getZ();
+        record.lastYaw = location.getYaw();
+        record.lastPitch = location.getPitch();
+    }
+
+    private void runPostLoginCommands(Player player) {
+        if (!getConfig().getBoolean("post-login-commands.enabled", false)) {
+            return;
+        }
+        java.util.List<String> commands = getConfig().getStringList("post-login-commands.commands");
+        if (commands.isEmpty()) {
+            return;
+        }
+        boolean asPlayer = "player".equalsIgnoreCase(getConfig().getString("post-login-commands.executor", "console"));
+        for (String rawCommand : commands) {
+            if (rawCommand == null || rawCommand.isBlank()) {
+                continue;
+            }
+            String command = applyPlaceholders(player, rawCommand).replace("%uuid%", player.getUniqueId().toString());
+            if (command.startsWith("/")) {
+                command = command.substring(1);
+            }
+            Bukkit.dispatchCommand(asPlayer ? player : Bukkit.getConsoleSender(), command);
+        }
     }
 
     private String normalizeProxyChannel(String channel) {
@@ -1815,6 +1910,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             record.rememberUntil = recordsConfig.getLong(path + "rememberUntil", 0L);
             record.lastVerifiedAt = recordsConfig.getString(path + "lastVerifiedAt", "");
             record.language = normalizeLanguage(recordsConfig.getString(path + "language", getDefaultLanguage()));
+            record.lastWorld = recordsConfig.getString(path + "lastWorld", "");
+            record.lastX = recordsConfig.getDouble(path + "lastX", 0D);
+            record.lastY = recordsConfig.getDouble(path + "lastY", 0D);
+            record.lastZ = recordsConfig.getDouble(path + "lastZ", 0D);
+            record.lastYaw = (float) recordsConfig.getDouble(path + "lastYaw", 0D);
+            record.lastPitch = (float) recordsConfig.getDouble(path + "lastPitch", 0D);
             records.put(key.toLowerCase(Locale.ROOT), record);
         }
     }
@@ -1843,6 +1944,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             recordsConfig.set(path + "rememberUntil", record.rememberUntil);
             recordsConfig.set(path + "lastVerifiedAt", record.lastVerifiedAt);
             recordsConfig.set(path + "language", normalizeLanguage(record.language));
+            recordsConfig.set(path + "lastWorld", record.lastWorld);
+            recordsConfig.set(path + "lastX", record.lastX);
+            recordsConfig.set(path + "lastY", record.lastY);
+            recordsConfig.set(path + "lastZ", record.lastZ);
+            recordsConfig.set(path + "lastYaw", record.lastYaw);
+            recordsConfig.set(path + "lastPitch", record.lastPitch);
         }
         try {
             recordsConfig.save(recordsFile);
@@ -1897,8 +2004,28 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                     + "remember_ip TEXT,"
                     + "remember_until BIGINT,"
                     + "last_verified_at TEXT,"
-                    + "language TEXT"
+                    + "language TEXT,"
+                    + "last_world TEXT,"
+                    + "last_x DOUBLE,"
+                    + "last_y DOUBLE,"
+                    + "last_z DOUBLE,"
+                    + "last_yaw DOUBLE,"
+                    + "last_pitch DOUBLE"
                     + ")");
+            addColumnIfMissing(statement, "last_world TEXT");
+            addColumnIfMissing(statement, "last_x DOUBLE");
+            addColumnIfMissing(statement, "last_y DOUBLE");
+            addColumnIfMissing(statement, "last_z DOUBLE");
+            addColumnIfMissing(statement, "last_yaw DOUBLE");
+            addColumnIfMissing(statement, "last_pitch DOUBLE");
+        }
+    }
+
+    private void addColumnIfMissing(Statement statement, String definition) {
+        try {
+            statement.executeUpdate("ALTER TABLE logingate_players ADD COLUMN " + definition);
+        } catch (SQLException ignored) {
+            // Existing databases may already have the column; keeping startup quiet avoids noisy migrations.
         }
     }
 
@@ -1926,6 +2053,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                     record.rememberUntil = result.getLong("remember_until");
                     record.lastVerifiedAt = result.getString("last_verified_at");
                     record.language = normalizeLanguage(result.getString("language"));
+                    record.lastWorld = result.getString("last_world");
+                    record.lastX = result.getDouble("last_x");
+                    record.lastY = result.getDouble("last_y");
+                    record.lastZ = result.getDouble("last_z");
+                    record.lastYaw = (float) result.getDouble("last_yaw");
+                    record.lastPitch = (float) result.getDouble("last_pitch");
                     records.put(name.toLowerCase(Locale.ROOT), record);
                 }
             }
@@ -1942,8 +2075,8 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 clear.executeUpdate("DELETE FROM logingate_players");
             }
             try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO logingate_players (name,email,game_name,password_hash,password_salt,registered_at,last_login_at,ip,generated_uuid,locked_until,verification_locked_until,remember_login,remember_ip,remember_until,last_verified_at,language) "
-                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                    "INSERT INTO logingate_players (name,email,game_name,password_hash,password_salt,registered_at,last_login_at,ip,generated_uuid,locked_until,verification_locked_until,remember_login,remember_ip,remember_until,last_verified_at,language,last_world,last_x,last_y,last_z,last_yaw,last_pitch) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
                 for (Map.Entry<String, PlayerRecord> entry : records.entrySet()) {
                     PlayerRecord record = entry.getValue();
                     statement.setString(1, entry.getKey());
@@ -1962,6 +2095,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                     statement.setLong(14, record.rememberUntil);
                     statement.setString(15, record.lastVerifiedAt);
                     statement.setString(16, normalizeLanguage(record.language));
+                    statement.setString(17, record.lastWorld);
+                    statement.setDouble(18, record.lastX);
+                    statement.setDouble(19, record.lastY);
+                    statement.setDouble(20, record.lastZ);
+                    statement.setDouble(21, record.lastYaw);
+                    statement.setDouble(22, record.lastPitch);
                     statement.addBatch();
                 }
                 statement.executeBatch();
@@ -2094,6 +2233,9 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private String message(Player player, String key, String fallback, String... replacements) {
+        if (!isMessageEnabled(key)) {
+            return "";
+        }
         String text = localizedRaw(player, key, fallback);
         text = applyPlaceholders(player, text);
         for (int i = 0; i + 1 < replacements.length; i += 2) {
@@ -2103,12 +2245,27 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private String rawMessage(Player player, String key, String fallback, String... replacements) {
+        if (!isMessageEnabled(key)) {
+            return "";
+        }
         String text = localizedRaw(player, key, fallback);
         text = applyPlaceholders(player, text);
         for (int i = 0; i + 1 < replacements.length; i += 2) {
             text = text.replace(replacements[i], replacements[i + 1]);
         }
         return text;
+    }
+
+    private boolean isMessageEnabled(String key) {
+        return getConfig().getBoolean("message-toggles." + key,
+                getConfig().getBoolean("message-toggles.default", true));
+    }
+
+    private void sendTitleIfEnabled(Player player, String title, String subtitle, int fadeIn, int stay, int fadeOut) {
+        if ((title == null || title.isBlank()) && (subtitle == null || subtitle.isBlank())) {
+            return;
+        }
+        player.sendTitle(color(title), color(subtitle), fadeIn, stay, fadeOut);
     }
 
     private String mailSubject(Player player, String key, String fallback) {
@@ -2222,6 +2379,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         private long rememberUntil;
         private String lastVerifiedAt;
         private String language;
+        private String lastWorld;
+        private double lastX;
+        private double lastY;
+        private double lastZ;
+        private float lastYaw;
+        private float lastPitch;
     }
 
     private static final class UpdateInfo {

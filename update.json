@@ -1,5 +1,5 @@
 {
-  "version": "v1.5.1",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.5.1",
-  "body": "优化消息配置来源，新增 message-source 选项。默认优先使用 lang/zh.yml 与 lang/en.yml 支持中英文切换，也可切换为 config 模式，只在 config.yml 中维护普通提示和邮件标题。"
+  "version": "v1.6.0",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.0",
+  "body": "新增登录后传送位置策略，可选择主世界出生点或玩家上次离开位置；新增登录后命令执行；新增 message-toggles 普通消息逐条开关；新增 email-verification.enabled，关闭邮箱验证后注册、改密、改绑可跳过验证码步骤。"
 }

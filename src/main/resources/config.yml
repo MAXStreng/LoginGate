@@ -8,6 +8,91 @@ default-language: "zh"
 # 想保留 /lang 中英文切换时建议使用 lang；只想改一个文件时可改为 config。
 message-source: "lang"
 
+message-toggles:
+  # 普通 messages 文案默认是否启用。单独设置某个 key 时会覆盖这里。
+  default: true
+  # 下方每个 key 都对应 messages 里的一条普通提示，可按需改为 false。
+  welcome-title: true
+  welcome-register-subtitle: true
+  welcome-login-subtitle: true
+  title-register-email: true
+  subtitle-register-email: true
+  title-register-code: true
+  subtitle-register-code: true
+  title-register-password: true
+  subtitle-register-password: true
+  title-login-password: true
+  subtitle-login-password: true
+  title-change-code: true
+  subtitle-change-code: true
+  title-change-password: true
+  subtitle-change-password: true
+  input-new-password: true
+  locked-title: true
+  locked-subtitle: true
+  transfer-title: true
+  transfer-subtitle: true
+  register-help: true
+  login-help: true
+  input-email: true
+  input-password: true
+  input-bind-email: true
+  register-code-sent: true
+  bind-code-sent: true
+  change-code-sent: true
+  invalid-email: true
+  invalid-code: true
+  verification-failed-title: true
+  verification-invalid-subtitle: true
+  verification-expired-subtitle: true
+  verification-invalid-chat: true
+  verification-expired-chat: true
+  code-ok-set-password: true
+  code-ok-reset-password: true
+  email-verification-skipped: true
+  change-password-login-required: true
+  register-success: true
+  bind-success: true
+  verification-success: true
+  welcome-back: true
+  first-login: true
+  password-wrong: true
+  login-locked: true
+  password-too-short: true
+  password-changed: true
+  password-require-uppercase: true
+  password-require-lowercase: true
+  password-require-number: true
+  password-require-symbol: true
+  email-cooldown: true
+  email-already-used: true
+  verification-code-wrong: true
+  verification-code-locked: true
+  already-registered: true
+  not-registered: true
+  already-logged-in: true
+  bindemail-verified-only: true
+  command-blocked: true
+  chat-blocked: true
+  unverified-kick: true
+  main-world-missing: true
+  proxy-transfer-started: true
+  proxy-transfer-failed: true
+  backend-verified: true
+  backend-unverified-kick: true
+  remember-login-enabled: true
+  remember-login-disabled-player: true
+  remember-login-disabled: true
+  remember-login-usage: true
+  remember-login-login-required: true
+  remember-login-success: true
+  admin-login-required: true
+  mail-sent: true
+  mail-failed: true
+  lang-usage: true
+  lang-unknown: true
+  lang-changed: true
+  suspicious-login: true
 # 绑定登录世界名称。留空时插件会按 login-world-generation.type 自动创建 login_void、login_flat 或 login_normal。
 loginworld: ""
 
@@ -16,6 +101,23 @@ main-world: "world"
 
 # 传送倒计时中显示的目标名称。
 transfer-target-name: "Pureblock"
+
+post-login-location:
+  # 是否启用登录后传送位置策略。关闭时始终使用 main-world 出生点。
+  enabled: true
+  # 登录后传送目标。spawn=服务器出生大厅；last-location=玩家上次离开服务器时的位置。
+  mode: "spawn"
+  # 是否记录玩家离开服务器时所在的位置。使用 last-location 模式时需要开启。
+  save-last-location: true
+
+post-login-commands:
+  # 是否在玩家完成登录并传送到主世界后执行命令。
+  enabled: false
+  # 命令执行身份。console=后台执行；player=玩家执行。
+  executor: "console"
+  # 登录后执行的命令列表，不需要写开头的 /。支持 %player%、%server%、%uuid%、%time%。
+  commands:
+    - "say %player% 已通过 LoginGate 验证"
 
 multi-server:
   # 当前服务器角色。standalone=单服，login=登录服，backend=主服/后端子服。
@@ -53,6 +155,10 @@ max-login-attempts: 3
 
 # 同一个邮箱重复获取验证码的冷却时间，单位为秒。
 email-code-cooldown-seconds: 60
+
+email-verification:
+  # 是否启用邮箱验证码验证。关闭后注册、改密、改绑邮箱会跳过验证码环节。
+  enabled: true
 
 remember-session:
   # 是否允许玩家自行开启记住登录。玩家默认关闭，需要使用 /rememberlogin on。
@@ -169,6 +275,8 @@ messages:
   title-change-password: "&a&l设置新密码"
   # 修改密码流程：设置新密码阶段副标题。
   subtitle-change-password: "&7请设置新的 &e登录密码"
+  # 修改密码流程：直接输入新密码提示。
+  input-new-password: "&d&lPureblock &8| &7请在聊天栏输入新的 &e登录密码&7。"
   # 登录锁定时显示的标题。
   locked-title: "&c&l验证锁定"
   # 登录锁定时显示的副标题，%seconds% 为剩余秒数。
@@ -211,6 +319,10 @@ messages:
   code-ok-set-password: "&a邮箱验证成功。&7请设置登录密码。"
   # 修改密码邮箱验证通过后提示。
   code-ok-reset-password: "&a邮箱验证成功。&7请设置新密码。"
+  # 邮箱验证码验证关闭时的跳过提示。
+  email-verification-skipped: "&a邮箱验证已关闭，已跳过验证码步骤。"
+  # 邮箱验证关闭时，未登录玩家不能直接改密。
+  change-password-login-required: "&c邮箱验证关闭时，必须先登录才能修改密码。"
   # 注册成功提示，%uuid% 为插件生成的 Pureblock UUID。
   register-success: "&a注册成功。&7你的 Pureblock UUID 为 &d%uuid%&7。"
   # 邮箱改绑成功提示，%old% 为旧邮箱，%new% 为新邮箱。
