@@ -13,6 +13,18 @@ main-world: "world"
 # 传送倒计时中显示的目标名称。
 transfer-target-name: "Pureblock"
 
+multi-server:
+  # 多服兼容模式。关闭时使用本地 main-world 传送；开启后通过代理插件消息转发到目标子服。
+  enabled: false
+  # 放行模式。local=本地世界传送，proxy=通过 BungeeCord/Velocity 代理转服。
+  transfer-mode: "local"
+  # 代理端配置的目标子服名称，开启 proxy 模式后会连接到这里。
+  target-server: "Pureblock"
+  # 插件消息通道。BungeeCord 常用 BungeeCord；Velocity 可按代理设置改为 bungeecord:main。
+  plugin-message-channel: "BungeeCord"
+  # 代理转服失败时是否回退到本地 main-world。
+  fallback-to-local-world: true
+
 # 登录成功后传送到主世界前的倒计时秒数。
 post-login-countdown-seconds: 3
 
@@ -171,6 +183,10 @@ messages:
   unverified-kick: "&c未完成 Pureblock 身份验证，无法进入主世界。"
   # 主世界缺失时的踢出提示。
   main-world-missing: "&c主世界不存在，无法完成登录。"
+  # 代理转服消息已发送时的提示，%server% 为目标子服名称。
+  proxy-transfer-started: "&a身份验证通过，正在连接至 &d%server%&a。"
+  # 代理转服失败且未启用本地回退时的踢出提示。
+  proxy-transfer-failed: "&c代理转服失败，请稍后重试。"
   # SMTP 邮件发送成功提示。
   mail-sent: "&a验证码邮件已发送，请查收邮箱。"
   # SMTP 邮件发送失败提示。

@@ -35,6 +35,8 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -66,6 +68,8 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private static final DateTimeFormatter DISPLAY_TIME = DateTimeFormatter.ofPattern("yyyy年MM月dd日-HH时mm分ss秒").withZone(ZoneId.systemDefault());
     private static final String GITHUB_REPOSITORY_URL = "https://github.com/MAXStreng/LoginGate";
     private static final String DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/MAXStreng/LoginGate/main/update.json";
+    private static final String LEGACY_PROXY_CHANNEL = "BungeeCord";
+    private static final String MODERN_PROXY_CHANNEL = "bungeecord:main";
 
     private final SecureRandom random = new SecureRandom();
     private final Map<UUID, Session> sessions = new HashMap<>();
@@ -95,6 +99,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         bindCommand("changepwd");
         bindCommand("bindemail");
         bindCommand("lang");
+        setupProxyChannels();
         startPersistentTitleTask();
         startLoginWorldRuleTask();
 
@@ -103,6 +108,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        Bukkit.getMessenger().unregisterOutgoingPluginChannel(this);
         saveRecords();
     }
 
@@ -833,7 +839,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         UUID uuid = player.getUniqueId();
         transferring.add(uuid);
         int seconds = Math.max(1, getConfig().getInt("post-login-countdown-seconds", 3));
-        String target = getConfig().getString("transfer-target-name", "Pureblock");
+        String target = getTransferTargetName();
 
         new BukkitRunnable() {
             private int left = seconds;
@@ -865,7 +871,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private void authenticateNow(Player player) {
         authenticated.add(player.getUniqueId());
         showAllPlayers(player);
-        teleportToMain(player);
+        transferToVerifiedDestination(player);
     }
 
     private boolean isVerified(Player player) {
@@ -1096,6 +1102,83 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return;
         }
         player.teleport(world.getSpawnLocation().add(0.5, 0, 0.5));
+    }
+
+    private void transferToVerifiedDestination(Player player) {
+        if (isProxyTransferEnabled()) {
+            connectToProxyServer(player);
+            return;
+        }
+        teleportToMain(player);
+    }
+
+    private boolean isProxyTransferEnabled() {
+        boolean enabled = getConfig().getBoolean("multi-server.enabled", false);
+        String mode = getConfig().getString("multi-server.transfer-mode", "local");
+        return enabled && mode != null && !"local".equals(mode.toLowerCase(Locale.ROOT));
+    }
+
+    private String getTransferTargetName() {
+        if (isProxyTransferEnabled()) {
+            String targetServer = getConfig().getString("multi-server.target-server", "");
+            if (targetServer != null && !targetServer.isBlank()) {
+                return targetServer;
+            }
+        }
+        return getConfig().getString("transfer-target-name", "Pureblock");
+    }
+
+    private void connectToProxyServer(Player player) {
+        String targetServer = getConfig().getString("multi-server.target-server", getConfig().getString("transfer-target-name", "Pureblock"));
+        if (targetServer == null || targetServer.isBlank()) {
+            handleProxyTransferFailure(player, "target server is blank");
+            return;
+        }
+
+        String channel = normalizeProxyChannel(getConfig().getString("multi-server.plugin-message-channel", LEGACY_PROXY_CHANNEL));
+        try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+             DataOutputStream output = new DataOutputStream(buffer)) {
+            output.writeUTF("Connect");
+            output.writeUTF(targetServer);
+            player.sendPluginMessage(this, channel, buffer.toByteArray());
+            player.sendMessage(message(player, "proxy-transfer-started",
+                    "&a身份验证通过，正在连接至 &d%server%&a。",
+                    "%server%", targetServer));
+        } catch (IOException | IllegalArgumentException ex) {
+            handleProxyTransferFailure(player, ex.getMessage());
+        }
+    }
+
+    private void handleProxyTransferFailure(Player player, String reason) {
+        getLogger().warning("Could not transfer " + player.getName() + " through proxy mode: " + reason);
+        if (getConfig().getBoolean("multi-server.fallback-to-local-world", true)) {
+            teleportToMain(player);
+            return;
+        }
+        player.kickPlayer(message(player, "proxy-transfer-failed", "&c代理转服失败，请稍后重试。"));
+    }
+
+    private String normalizeProxyChannel(String channel) {
+        if (channel == null || channel.isBlank()) {
+            return LEGACY_PROXY_CHANNEL;
+        }
+        if ("velocity".equalsIgnoreCase(channel)) {
+            return MODERN_PROXY_CHANNEL;
+        }
+        return channel;
+    }
+
+    private void setupProxyChannels() {
+        registerOutgoingProxyChannel(LEGACY_PROXY_CHANNEL);
+        registerOutgoingProxyChannel(MODERN_PROXY_CHANNEL);
+    }
+
+    private void registerOutgoingProxyChannel(String channel) {
+        try {
+            Bukkit.getMessenger().registerOutgoingPluginChannel(this, channel);
+        } catch (IllegalArgumentException ex) {
+            getLogger().warning("Could not register proxy plugin message channel " + channel + ": " + ex.getMessage());
+        }
     }
 
     private void setupWorlds() {

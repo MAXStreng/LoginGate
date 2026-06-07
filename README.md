@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.3.1`
+Current version: `v1.4.0`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
@@ -22,6 +22,7 @@ It sends players to a dedicated login world first, handles email registration, p
 - Fine-grained state messages for first enter, logging in, verification success, locked, and email bind success.
 - New player guide messages after successful registration.
 - Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
+- Multi-server compatibility mode for transferring verified players through BungeeCord / Velocity plugin messages.
 - Language files with `/lang zh` and `/lang en`.
 - Login world controls: no monsters, no weather cycle, locked time, invulnerability, freeze, and player hiding.
 
@@ -45,6 +46,7 @@ Important entries:
 - `loginworld`: fixed login world name. Leave it empty to let the plugin create `login_<type>`.
 - `login-world-generation.type`: login world terrain type, one of `void`, `flat`, or `normal`.
 - `main-world`: destination world after successful verification.
+- `multi-server`: multi-server compatibility settings. Disabled by default; when enabled, verified players can be sent to a proxy target server.
 - `default-language`: default language, `zh` or `en`.
 - `email-code-cooldown-seconds`: cooldown for requesting a new email code for the same email address.
 - `state-messages`: separate configurable message groups for first enter, logging in, verification success, locked, and email bind success.
@@ -55,6 +57,20 @@ Important entries:
 - `update-check.enabled`: whether to check for updates during plugin startup.
 - `update-check.manifest-url`: public update manifest URL. By default it reads `update.json` from this repository.
 - `smtp`: mail server settings.
+
+## Multi-Server Mode
+
+LoginGate still uses local world teleport by default. For BungeeCord / Velocity setups, enable proxy transfer in `config.yml`:
+
+```yaml
+multi-server:
+  enabled: true
+  transfer-mode: "proxy"
+  target-server: "Pureblock"
+  plugin-message-channel: "BungeeCord"
+```
+
+`target-server` must match the server name configured in the proxy. Velocity setups can change `plugin-message-channel` to `bungeecord:main` when needed.
 
 ## Language Files
 

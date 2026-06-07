@@ -53,6 +53,8 @@ messages:
   chat-blocked: "&c验证前不能聊天。请使用 &e/register &c或 &e/login&c。"
   unverified-kick: "&c未完成 Pureblock 身份验证，无法进入主世界。"
   main-world-missing: "&c主世界不存在，无法完成登录。"
+  proxy-transfer-started: "&a身份验证通过，正在连接至 &d%server%&a。"
+  proxy-transfer-failed: "&c代理转服失败，请稍后重试。"
   mail-sent: "&a验证码邮件已发送，请查收邮箱。"
   mail-failed: "&c邮件发送失败，请让管理员检查 SMTP 配置。测试验证码已写入后台日志。"
   lang-usage: "&e用法：/lang zh 或 /lang en"

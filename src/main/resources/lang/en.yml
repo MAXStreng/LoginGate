@@ -53,6 +53,8 @@ messages:
   chat-blocked: "&cYou cannot chat before verification. Use &e/register &cor &e/login&c."
   unverified-kick: "&cYou must finish Pureblock verification before entering the main world."
   main-world-missing: "&cThe main world is missing. Login cannot be completed."
+  proxy-transfer-started: "&aVerification passed. Connecting to &d%server%&a."
+  proxy-transfer-failed: "&cProxy transfer failed. Please try again later."
   mail-sent: "&aVerification email sent. Please check your mailbox."
   mail-failed: "&cEmail sending failed. Ask an admin to check the SMTP settings. A test code was written to the console."
   lang-usage: "&eUsage: /lang zh or /lang en"
