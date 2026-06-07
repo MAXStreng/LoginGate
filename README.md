@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.4.1`
+Current version: `v1.5.0`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
@@ -32,6 +32,13 @@ It sends players to a dedicated login world first, handles email registration, p
 - Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
 - Multi-server compatibility mode for transferring verified players through BungeeCord / Velocity plugin messages.
 - Automatic configuration migration fills missing new default options while keeping existing values.
+- Player-controlled remembered login sessions through `/rememberlogin on|off`, disabled per player by default.
+- Unique email binding, verification code attempt lockouts, and configurable password strength rules.
+- Security logs for registration, login, failures, lockouts, password changes, email rebinding, and suspicious logins.
+- Security notice emails for password changes, email rebinding, and suspicious logins.
+- `/logingate` admin commands; player admins must complete LoginGate verification before using them.
+- YAML, SQLite, and MySQL/MariaDB player data storage.
+- Backend servers can validate recently verified players for proxy-based networks.
 - Language files with `/lang zh` and `/lang en`.
 - Login world controls: no monsters, no weather cycle, locked time, invulnerability, freeze, and player hiding.
 
@@ -41,6 +48,12 @@ It sends players to a dedicated login world first, handles email registration, p
 - `/login`: enter the account password and continue to the main world.
 - `/changepwd`: reset the password through email verification.
 - `/bindemail [email]`: rebind the account email after login. If no email is provided, the plugin asks for it in chat.
+- `/rememberlogin on`: enable short remembered login for yourself after login.
+- `/rememberlogin off`: disable remembered login.
+- `/logingate reload`: reload config and language files.
+- `/logingate info <player>`: show a player account summary.
+- `/logingate unlock <player>`: clear login and verification-code locks.
+- `/logingate resetpwd <player> <newPassword>`: reset a player password as an admin.
 - `/lang zh`: switch LoginGate text to Chinese.
 - `/lang en`: switch LoginGate text to English.
 
@@ -56,6 +69,13 @@ Important entries:
 - `login-world-generation.type`: login world terrain type, one of `void`, `flat`, or `normal`.
 - `main-world`: destination world after successful verification.
 - `multi-server`: multi-server compatibility settings. Disabled by default; when enabled, verified players can be sent to a proxy target server.
+- `remember-session`: player-controlled short remembered login settings.
+- `verification-code`: maximum wrong code attempts and lock duration.
+- `email-unique`: one-email-per-account policy.
+- `password-strength`: configurable password complexity requirements.
+- `security-log`: security log switch.
+- `security-mail`: security notice mail switch.
+- `storage`: player data storage, one of `yaml`, `sqlite`, `mysql`, or `mariadb`.
 - `default-language`: default language, `zh` or `en`.
 - `email-code-cooldown-seconds`: cooldown for requesting a new email code for the same email address.
 - `state-messages`: separate configurable message groups for first enter, logging in, verification success, locked, and email bind success.
@@ -80,6 +100,27 @@ multi-server:
 ```
 
 `target-server` must match the server name configured in the proxy. Velocity setups can change `plugin-message-channel` to `bungeecord:main` when needed.
+
+Backend servers can use:
+
+```yaml
+multi-server:
+  server-role: "backend"
+  backend-verified-window-seconds: 300
+```
+
+For shared verification state across servers, use `storage.type: "mysql"` or `storage.type: "mariadb"` so the login server and backend servers read the same player data.
+
+## Admin Commands
+
+`/logingate` admin commands require `logingate.admin`. Player admins must complete LoginGate verification first; the console can run them directly.
+
+```text
+/logingate reload
+/logingate info <player>
+/logingate unlock <player>
+/logingate resetpwd <player> <newPassword>
+```
 
 ## Configuration Migration
 
@@ -112,6 +153,6 @@ Player records are stored in:
 
 `plugins/LoginGate/PlayerInfo/players.yml`
 
-Stored fields include email, game name, hashed password, registration time, last login time, IP, generated Pureblock UUID, language, and persistent lock time.
+Stored fields include email, game name, hashed password, registration time, last login time, IP, generated Pureblock UUID, language, persistent lock time, verification-code lock time, remembered-login preference, and last verified time.
 
 The login environment warning is based on server-visible connection data such as IP address. LoginGate does not read hardware device identifiers.

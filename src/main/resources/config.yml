@@ -14,6 +14,8 @@ main-world: "world"
 transfer-target-name: "Pureblock"
 
 multi-server:
+  # 当前服务器角色。standalone=单服，login=登录服，backend=主服/后端子服。
+  server-role: "standalone"
   # 多服兼容模式。关闭时使用本地 main-world 传送；开启后通过代理插件消息转发到目标子服。
   enabled: false
   # 放行模式。local=本地世界传送，proxy=通过 BungeeCord/Velocity 代理转服。
@@ -24,6 +26,8 @@ multi-server:
   plugin-message-channel: "BungeeCord"
   # 代理转服失败时是否回退到本地 main-world。
   fallback-to-local-world: true
+  # 后端子服接受最近多少秒内完成登录验证的玩家。
+  backend-verified-window-seconds: 300
 
 # 登录成功后传送到主世界前的倒计时秒数。
 post-login-countdown-seconds: 3
@@ -45,6 +49,60 @@ max-login-attempts: 3
 
 # 同一个邮箱重复获取验证码的冷却时间，单位为秒。
 email-code-cooldown-seconds: 60
+
+remember-session:
+  # 是否允许玩家自行开启记住登录。玩家默认关闭，需要使用 /rememberlogin on。
+  enabled: true
+  # 记住登录有效期，单位为分钟。仅同 IP 且未过期时自动登录。
+  expire-minutes: 10
+
+verification-code:
+  # 邮箱验证码允许连续输错的最大次数。
+  max-attempts: 3
+  # 验证码输错过多后的流程锁定时间，单位为分钟。锁定只发送聊天消息，不显示 title。
+  lock-minutes: 3
+
+email-unique:
+  # 是否限制一个邮箱只能绑定一个账号。
+  enabled: true
+
+password-strength:
+  # 是否要求密码包含大写字母。
+  require-uppercase: false
+  # 是否要求密码包含小写字母。
+  require-lowercase: false
+  # 是否要求密码包含数字。
+  require-number: false
+  # 是否要求密码包含符号。
+  require-symbol: false
+
+security-log:
+  # 是否记录注册、登录、失败、锁定、改密、改绑、异常登录等安全日志。
+  enabled: true
+
+security-mail:
+  # 是否在改密、改绑邮箱、异常登录时发送安全提醒邮件。需要 SMTP 可用。
+  enabled: true
+
+storage:
+  # 玩家数据存储方式。yaml=默认本地文件，sqlite=本地数据库，mysql/mariadb=远程数据库。
+  type: "yaml"
+  sqlite:
+    # SQLite 数据库文件位置，相对插件数据目录。
+    file: "PlayerInfo/players.db"
+  mysql:
+    # MySQL/MariaDB 地址。
+    host: "localhost"
+    # MySQL/MariaDB 端口。
+    port: 3306
+    # 数据库名。
+    database: "logingate"
+    # 数据库用户名。
+    username: "root"
+    # 数据库密码。
+    password: ""
+    # 可选自定义 JDBC URL。留空时按上方信息自动生成。
+    jdbc-url: ""
 
 update-check:
   # 是否在插件启动时检查 GitHub 最新版本。
@@ -165,8 +223,22 @@ messages:
   password-too-short: "&c密码太短，至少需要 &e%min% &c位。"
   # 密码修改成功提示。
   password-changed: "&a密码修改成功。请使用 &e/login &a重新登录。"
+  # 密码缺少大写字母提示。
+  password-require-uppercase: "&c密码需要至少包含一个大写字母。"
+  # 密码缺少小写字母提示。
+  password-require-lowercase: "&c密码需要至少包含一个小写字母。"
+  # 密码缺少数字提示。
+  password-require-number: "&c密码需要至少包含一个数字。"
+  # 密码缺少符号提示。
+  password-require-symbol: "&c密码需要至少包含一个符号。"
   # 邮箱验证码获取冷却提示，%seconds% 为剩余秒数。
   email-cooldown: "&c&l短时间内获取多次验证码，请等待 &a%seconds% &c&l秒后重新操作！"
+  # 邮箱已被其他账号使用。
+  email-already-used: "&c该邮箱已经绑定其他账号。"
+  # 验证码错误但未锁定，%left% 为剩余次数。
+  verification-code-wrong: "&c验证码不正确，剩余尝试次数：&e%left%"
+  # 验证码错误次数过多后的聊天提示，%seconds% 为剩余秒数。
+  verification-code-locked: "&c验证码错误次数过多，请等待 &e%seconds% &c秒后重新操作。"
   # 已注册玩家重复注册提示。
   already-registered: "&a你已经完成注册。请使用 &e/login &a登录。"
   # 未注册玩家登录或改密提示。
@@ -187,6 +259,24 @@ messages:
   proxy-transfer-started: "&a身份验证通过，正在连接至 &d%server%&a。"
   # 代理转服失败且未启用本地回退时的踢出提示。
   proxy-transfer-failed: "&c代理转服失败，请稍后重试。"
+  # 后端子服确认玩家已完成登录验证。
+  backend-verified: "&a已确认你的登录验证状态，欢迎进入主服务器。"
+  # 后端子服未检测到有效登录验证记录时的踢出提示。
+  backend-unverified-kick: "&c未检测到有效登录验证记录，请先进入登录服务器完成验证。"
+  # 玩家开启记住登录成功，%minutes% 为有效期。
+  remember-login-enabled: "&a已开启记住登录。有效期：&e%minutes% &a分钟。"
+  # 玩家关闭记住登录成功。
+  remember-login-disabled-player: "&a已关闭记住登录。下次进入仍需输入密码。"
+  # 服务器未启用记住登录。
+  remember-login-disabled: "&c服务器未启用记住登录功能。"
+  # 记住登录命令格式。
+  remember-login-usage: "&e用法：/rememberlogin on 或 /rememberlogin off"
+  # 玩家未登录时使用记住登录命令。
+  remember-login-login-required: "&c请先完成登录后再设置免登录会话。"
+  # 自动免登录成功。
+  remember-login-success: "&a已使用记住登录会话自动完成验证。"
+  # 管理员未登录时使用管理命令。
+  admin-login-required: "&c管理员也需要先完成登录验证。"
   # SMTP 邮件发送成功提示。
   mail-sent: "&a验证码邮件已发送，请查收邮箱。"
   # SMTP 邮件发送失败提示。
@@ -207,6 +297,8 @@ mail:
   change-subject: "Pureblock 修改密码验证码"
   # 改绑邮箱邮件标题。
   bind-subject: "Pureblock 改绑邮箱验证码"
+  # 安全提醒邮件标题。
+  security-subject: "Pureblock 安全提醒"
 
 state-messages:
   # 玩家首次进入登录世界时的消息组。

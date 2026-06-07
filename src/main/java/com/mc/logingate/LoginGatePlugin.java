@@ -49,6 +49,12 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.time.Instant;
@@ -81,12 +87,14 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private final Map<String, Long> emailCooldowns = new HashMap<>();
     private final Map<String, FileConfiguration> languageConfigs = new HashMap<>();
     private final Map<UUID, String> languagePreferences = new HashMap<>();
+    private final Map<UUID, Long> verificationLocks = new HashMap<>();
     private final Set<UUID> authenticated = new HashSet<>();
     private final Set<UUID> transferring = new HashSet<>();
     private final Map<UUID, Long> verificationHoldUntil = new HashMap<>();
 
     private File recordsFile;
     private FileConfiguration recordsConfig;
+    private File securityLogFile;
 
     @Override
     public void onEnable() {
@@ -104,7 +112,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         bindCommand("changepwd");
         bindCommand("bindemail");
         bindCommand("lang");
+        bindCommand("rememberlogin");
+        bindCommand("logingate");
         setupProxyChannels();
+        validateStartupConfig();
         startPersistentTitleTask();
         startLoginWorldRuleTask();
 
@@ -182,14 +193,22 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        String name = command.getName().toLowerCase(Locale.ROOT);
+        if ("logingate".equals(name)) {
+            return handleAdminCommand(sender, args);
+        }
+
         if (!(sender instanceof Player player)) {
             sender.sendMessage("This command can only be used by players.");
             return true;
         }
 
-        String name = command.getName().toLowerCase(Locale.ROOT);
         if ("lang".equals(name)) {
             handleLanguageCommand(player, args);
+            return true;
+        }
+        if ("rememberlogin".equals(name)) {
+            handleRememberLoginCommand(player, args);
             return true;
         }
         if ("bindemail".equals(name)) {
@@ -230,8 +249,8 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         authenticated.remove(player.getUniqueId());
         transferring.remove(player.getUniqueId());
 
-        if (player.hasPermission("logingate.bypass")) {
-            authenticated.add(player.getUniqueId());
+        if (isBackendRole()) {
+            handleBackendJoin(player);
             return;
         }
 
@@ -241,6 +260,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         if (isLocked(player)) {
             sendConfiguredMessages(player, "state-messages.locked.messages");
             showLocked(player);
+        } else if (canUseRememberedSession(player, record)) {
+            logSecurity("remember-login", player, "Auto login by remembered session");
+            player.sendMessage(message(player, "remember-login-success", "&a已使用记住登录会话自动完成验证。"));
+            startTransferCountdown(player);
         } else if (record == null) {
             sendConfiguredMessages(player, "state-messages.first-enter.messages");
             player.sendMessage(message(player, "register-help", "&d&lPureblock &8| &7欢迎来到 &b纯境方块&7。请输入 &e/register &7开始邮箱注册。"));
@@ -303,7 +326,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             prepareLoginPlayer(player);
             return;
         }
-        if (!isVerified(player) && !player.hasPermission("logingate.bypass")) {
+        if (!isVerified(player)) {
             player.kickPlayer(message(player, "unverified-kick", "&c未完成 Pureblock 身份验证，无法进入主世界。"));
         } else {
             showAllPlayers(player);
@@ -349,6 +372,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private void handleRegisterCommand(Player player, String[] args) {
         if (getRecord(player) != null) {
             player.sendMessage(message(player, "already-registered", "&a你已经完成注册。请使用 &e/login &a登录。"));
+            return;
+        }
+        if (isVerificationLocked(player)) {
+            showVerificationLockedMessage(player);
             return;
         }
 
@@ -574,6 +601,31 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         Bukkit.getConsoleSender().sendMessage(ChatColor.GREEN + message);
     }
 
+    private void validateStartupConfig() {
+        if (getConfig().getBoolean("smtp.enabled", false)) {
+            String host = getConfig().getString("smtp.host", "");
+            String username = getConfig().getString("smtp.username", "");
+            String password = getConfig().getString("smtp.password", "");
+            if (host.contains("example.com") || username.contains("example.com") || "change-me".equals(password)) {
+                getLogger().warning("SMTP is enabled but still contains example values. Email verification may fail.");
+            }
+        }
+        if (isProxyTransferEnabled()) {
+            String target = getConfig().getString("multi-server.target-server", "");
+            if (target == null || target.isBlank()) {
+                getLogger().warning("multi-server proxy mode is enabled, but target-server is blank.");
+            }
+        }
+        if (isBackendRole() && !isDatabaseStorage()) {
+            getLogger().warning("multi-server server-role is backend while storage.type is yaml. Use a shared database for reliable cross-server verification.");
+        }
+        String storage = getConfig().getString("storage.type", "yaml");
+        if (storage != null && !storage.equalsIgnoreCase("yaml") && !storage.equalsIgnoreCase("sqlite")
+                && !storage.equalsIgnoreCase("mysql") && !storage.equalsIgnoreCase("mariadb")) {
+            getLogger().warning("Unknown storage.type: " + storage + ". LoginGate will try SQLite-compatible storage behavior.");
+        }
+    }
+
     private void handleLoginCommand(Player player, String[] args) {
         PlayerRecord record = getRecord(player);
         if (record == null) {
@@ -604,6 +656,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             showLocked(player);
             return;
         }
+        if (isVerificationLocked(player)) {
+            showVerificationLockedMessage(player);
+            return;
+        }
         if (!checkEmailCooldown(player, record.email)) {
             return;
         }
@@ -622,6 +678,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         PlayerRecord record = getRecord(player);
         if (record == null) {
             player.sendMessage(message(player, "not-registered", "&c你还没有注册。请先使用 &e/register&c。"));
+            return;
+        }
+        if (isVerificationLocked(player)) {
+            showVerificationLockedMessage(player);
             return;
         }
 
@@ -659,6 +719,133 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         showGatePrompt(player);
     }
 
+    private void handleRememberLoginCommand(Player player, String[] args) {
+        if (!isVerified(player)) {
+            player.sendMessage(message(player, "remember-login-login-required", "&c请先完成登录后再设置免登录会话。"));
+            return;
+        }
+        if (!getConfig().getBoolean("remember-session.enabled", true)) {
+            player.sendMessage(message(player, "remember-login-disabled", "&c服务器未启用记住登录功能。"));
+            return;
+        }
+        PlayerRecord record = getRecord(player);
+        if (record == null) {
+            player.sendMessage(message(player, "not-registered", "&c你还没有注册。请先使用 &e/register&c。"));
+            return;
+        }
+        if (args.length != 1 || (!"on".equalsIgnoreCase(args[0]) && !"off".equalsIgnoreCase(args[0]))) {
+            player.sendMessage(message(player, "remember-login-usage", "&e用法：/rememberlogin on 或 /rememberlogin off"));
+            return;
+        }
+
+        boolean enabled = "on".equalsIgnoreCase(args[0]);
+        record.rememberLogin = enabled;
+        if (enabled) {
+            updateRememberedSession(player, record);
+            player.sendMessage(message(player, "remember-login-enabled", "&a已开启记住登录。有效期：&e%minutes% &a分钟。",
+                    "%minutes%", String.valueOf(getConfig().getInt("remember-session.expire-minutes", 10))));
+            logSecurity("remember-enabled", player, "ip=" + getAddress(player));
+        } else {
+            record.rememberIp = "";
+            record.rememberUntil = 0L;
+            player.sendMessage(message(player, "remember-login-disabled-player", "&a已关闭记住登录。下次进入仍需输入密码。"));
+            logSecurity("remember-disabled", player, "");
+        }
+        saveRecords();
+    }
+
+    private boolean handleAdminCommand(CommandSender sender, String[] args) {
+        if (sender instanceof Player player && !isVerified(player)) {
+            player.sendMessage(message(player, "admin-login-required", "&c管理员也需要先完成登录验证。"));
+            return true;
+        }
+        if (!sender.hasPermission("logingate.admin")) {
+            sender.sendMessage(color("&c你没有权限使用 LoginGate 管理命令。"));
+            return true;
+        }
+        if (args.length == 0) {
+            sender.sendMessage(color("&e用法：/logingate reload | info <玩家> | unlock <玩家> | resetpwd <玩家> <新密码>"));
+            return true;
+        }
+
+        String sub = args[0].toLowerCase(Locale.ROOT);
+        if ("reload".equals(sub)) {
+            reloadConfig();
+            migrateConfigDefaults();
+            setupLanguages();
+            validateStartupConfig();
+            sender.sendMessage(color("&aLoginGate 配置已重载。"));
+            return true;
+        }
+        if ("info".equals(sub)) {
+            if (args.length < 2) {
+                sender.sendMessage(color("&e用法：/logingate info <玩家>"));
+                return true;
+            }
+            PlayerRecord record = getRecordByName(args[1]);
+            if (record == null) {
+                sender.sendMessage(color("&c未找到玩家档案。"));
+                return true;
+            }
+            sender.sendMessage(color("&dLoginGate &7玩家档案：" + record.gameName));
+            sender.sendMessage(color("&7邮箱：&e" + maskEmail(record.email)));
+            sender.sendMessage(color("&7注册时间：&e" + formatStoredTime(record.registeredAt)));
+            sender.sendMessage(color("&7上次登录：&e" + formatStoredTime(record.lastLoginAt)));
+            sender.sendMessage(color("&7上次 IP：&e" + record.lastIp));
+            sender.sendMessage(color("&7Pureblock UUID：&e" + record.generatedUuid));
+            sender.sendMessage(color("&7记住登录：&e" + record.rememberLogin));
+            return true;
+        }
+        if ("unlock".equals(sub)) {
+            if (args.length < 2) {
+                sender.sendMessage(color("&e用法：/logingate unlock <玩家>"));
+                return true;
+            }
+            PlayerRecord record = getRecordByName(args[1]);
+            if (record == null) {
+                sender.sendMessage(color("&c未找到玩家档案。"));
+                return true;
+            }
+            record.lockedUntil = 0L;
+            record.verificationLockedUntil = 0L;
+            saveRecords();
+            sender.sendMessage(color("&a已解除玩家登录/验证码锁定：" + record.gameName));
+            logSecurity("admin-unlock", sender instanceof Player player ? player : null, "target=" + record.gameName);
+            return true;
+        }
+        if ("resetpwd".equals(sub)) {
+            if (args.length < 3) {
+                sender.sendMessage(color("&e用法：/logingate resetpwd <玩家> <新密码>"));
+                return true;
+            }
+            PlayerRecord record = getRecordByName(args[1]);
+            if (record == null) {
+                sender.sendMessage(color("&c未找到玩家档案。"));
+                return true;
+            }
+            int minLength = getConfig().getInt("password-min-length", 8);
+            if (args[2].length() < minLength) {
+                sender.sendMessage(color("&c新密码太短，至少需要 " + minLength + " 位。"));
+                return true;
+            }
+            PasswordHash hash = hashPassword(args[2]);
+            record.passwordHash = hash.hash;
+            record.passwordSalt = hash.salt;
+            record.lockedUntil = 0L;
+            record.verificationLockedUntil = 0L;
+            record.rememberUntil = 0L;
+            saveRecords();
+            sendSecurityNoticeAsync(record.email, getConfig().getString("mail.security-subject", "Pureblock 安全提醒"),
+                    "你的账号 " + record.gameName + " 密码已由管理员重置。");
+            sender.sendMessage(color("&a已重置玩家密码：" + record.gameName));
+            logSecurity("admin-resetpwd", sender instanceof Player player ? player : null, "target=" + record.gameName);
+            return true;
+        }
+
+        sender.sendMessage(color("&c未知子命令。"));
+        return true;
+    }
+
     private void handleSessionInput(Player player, String input) {
         Session session = sessions.get(player.getUniqueId());
         if (session == null) {
@@ -676,8 +863,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             case REGISTER_CODE -> {
                 boolean expired = session.expiresAt > 0 && session.expiresAt < System.currentTimeMillis();
                 if (!checkCode(session, input)) {
-                    showVerificationFailure(player, session, expired);
-                    sessions.remove(player.getUniqueId());
+                    handleCodeFailure(player, session, expired);
                     return;
                 }
                 session.mode = SessionMode.REGISTER_PASSWORD;
@@ -687,9 +873,9 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             case REGISTER_PASSWORD -> finishRegistration(player, input, session);
             case LOGIN_PASSWORD -> verifyLoginPassword(player, input);
             case CHANGE_CODE -> {
+                boolean expired = session.expiresAt > 0 && session.expiresAt < System.currentTimeMillis();
                 if (!checkCode(session, input)) {
-                    showVerificationFailure(player, session, false);
-                    sessions.remove(player.getUniqueId());
+                    handleCodeFailure(player, session, expired);
                     return;
                 }
                 session.mode = SessionMode.CHANGE_PASSWORD;
@@ -705,9 +891,9 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 beginBindEmail(player, input);
             }
             case BIND_CODE -> {
+                boolean expired = session.expiresAt > 0 && session.expiresAt < System.currentTimeMillis();
                 if (!checkCode(session, input)) {
-                    showVerificationFailure(player, session, false);
-                    sessions.remove(player.getUniqueId());
+                    handleCodeFailure(player, session, expired);
                     return;
                 }
                 finishBindEmail(player, session);
@@ -716,6 +902,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private void beginRegisterEmail(Player player, String email) {
+        if (!isEmailAvailable(email, player.getName())) {
+            player.sendMessage(message(player, "email-already-used", "&c该邮箱已经绑定其他账号。"));
+            return;
+        }
         if (!checkEmailCooldown(player, email)) {
             return;
         }
@@ -745,6 +935,8 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         record.registeredAt = now;
         record.lastLoginAt = now;
         record.lastIp = getAddress(player);
+        record.lastVerifiedAt = now;
+        record.verificationLockedUntil = 0L;
         record.language = getPlayerLanguage(player);
 
         PasswordHash hash = hashPassword(password);
@@ -752,12 +944,14 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         record.passwordSalt = hash.salt;
 
         records.put(player.getName().toLowerCase(Locale.ROOT), record);
+        verificationLocks.remove(player.getUniqueId());
         saveRecords();
         sessions.remove(player.getUniqueId());
         verificationHoldUntil.remove(player.getUniqueId());
 
         player.sendMessage(message(player, "register-success", "&a注册成功。&7你的 Pureblock UUID 为 &d%uuid%&7。",
                 "%uuid%", record.generatedUuid));
+        logSecurity("register", player, "email=" + maskEmail(record.email));
         sendConfiguredMessages(player, "state-messages.verification-success.messages");
         sendConfiguredMessages(player, "custom-messages.after-register.messages");
         startTransferCountdown(player);
@@ -781,10 +975,17 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 player.sendMessage(message(player, "suspicious-login",
                         "&e检测到新的登录环境：&6%ip%&e。若这不是你本人操作，请尽快修改密码。",
                         "%ip%", currentIp));
+                sendSecurityNoticeAsync(record.email, mailSubject(player, "security-subject", "Pureblock 安全提醒"),
+                        "你的账号 " + player.getName() + " 检测到新的登录环境：" + currentIp + "\n\n如果这不是你本人操作，请尽快修改密码。");
+                logSecurity("suspicious-login", player, "ip=" + currentIp);
             }
             record.lastIp = currentIp;
             record.lastLoginAt = STORE_TIME.format(Instant.now());
+            record.lastVerifiedAt = record.lastLoginAt;
             record.lockedUntil = 0L;
+            record.verificationLockedUntil = 0L;
+            updateRememberedSession(player, record);
+            verificationLocks.remove(player.getUniqueId());
             saveRecords();
             sessions.remove(player.getUniqueId());
             verificationHoldUntil.remove(player.getUniqueId());
@@ -797,6 +998,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             }
             sendConfiguredMessages(player, "state-messages.verification-success.messages");
             sendConfiguredMessages(player, "custom-messages.after-login.messages");
+            logSecurity("login-success", player, "ip=" + currentIp);
             startTransferCountdown(player);
             return;
         }
@@ -811,10 +1013,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             record.lockedUntil = lockedUntil;
             saveRecords();
             player.sendMessage(message(player, "login-locked", "&c密码错误次数过多，登录已锁定。"));
+            logSecurity("login-locked", player, "ip=" + getAddress(player));
             showLocked(player);
         } else {
             player.sendMessage(message(player, "password-wrong", "&c密码错误。剩余尝试次数：&e%left%",
                     "%left%", String.valueOf(maxAttempts - session.failedAttempts)));
+            logSecurity("login-failed", player, "left=" + (maxAttempts - session.failedAttempts));
         }
     }
 
@@ -833,9 +1037,14 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         record.passwordHash = hash.hash;
         record.passwordSalt = hash.salt;
         record.lastIp = getAddress(player);
+        record.verificationLockedUntil = 0L;
+        verificationLocks.remove(player.getUniqueId());
         saveRecords();
         sessions.remove(player.getUniqueId());
         player.sendMessage(message(player, "password-changed", "&a密码修改成功。请使用 &e/login &a重新登录。"));
+        sendSecurityNoticeAsync(record.email, mailSubject(player, "security-subject", "Pureblock 安全提醒"),
+                "你的账号 " + player.getName() + " 刚刚完成了密码修改。\n\n如果这不是你本人操作，请立即联系服务器管理员。");
+        logSecurity("password-changed", player, "");
         showGatePrompt(player);
     }
 
@@ -843,6 +1052,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         PlayerRecord record = getRecord(player);
         if (record == null) {
             player.sendMessage(message(player, "not-registered", "&c你还没有注册。请先使用 &e/register&c。"));
+            return;
+        }
+        if (!isEmailAvailable(email, player.getName())) {
+            player.sendMessage(message(player, "email-already-used", "&c该邮箱已经绑定其他账号。"));
             return;
         }
         if (!checkEmailCooldown(player, email)) {
@@ -870,6 +1083,8 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
         String oldEmail = record.email;
         record.email = session.email;
+        record.verificationLockedUntil = 0L;
+        verificationLocks.remove(player.getUniqueId());
         saveRecords();
         sessions.remove(player.getUniqueId());
         verificationHoldUntil.remove(player.getUniqueId());
@@ -878,6 +1093,11 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         player.sendMessage(message(player, "bind-success", "&a邮箱绑定成功。&7已从 &e%old% &7更新为 &b%new%&7。",
                 "%old%", oldEmail == null ? "无" : oldEmail,
                 "%new%", session.email == null ? "" : session.email));
+        sendSecurityNoticeAsync(oldEmail, mailSubject(player, "security-subject", "Pureblock 安全提醒"),
+                "你的账号 " + player.getName() + " 刚刚将绑定邮箱从 " + oldEmail + " 修改为 " + session.email + "。");
+        sendSecurityNoticeAsync(session.email, mailSubject(player, "security-subject", "Pureblock 安全提醒"),
+                "你的账号 " + player.getName() + " 已绑定到此邮箱。");
+        logSecurity("email-rebound", player, "old=" + maskEmail(oldEmail) + " new=" + maskEmail(session.email));
         showGatePrompt(player);
     }
 
@@ -898,6 +1118,26 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         if (password.length() < minLength) {
             player.sendMessage(message(player, "password-too-short", "&c密码太短，至少需要 &e%min% &c位。",
                     "%min%", String.valueOf(minLength)));
+            return false;
+        }
+        if (getConfig().getBoolean("password-strength.require-uppercase", false)
+                && password.chars().noneMatch(Character::isUpperCase)) {
+            player.sendMessage(message(player, "password-require-uppercase", "&c密码需要至少包含一个大写字母。"));
+            return false;
+        }
+        if (getConfig().getBoolean("password-strength.require-lowercase", false)
+                && password.chars().noneMatch(Character::isLowerCase)) {
+            player.sendMessage(message(player, "password-require-lowercase", "&c密码需要至少包含一个小写字母。"));
+            return false;
+        }
+        if (getConfig().getBoolean("password-strength.require-number", false)
+                && password.chars().noneMatch(Character::isDigit)) {
+            player.sendMessage(message(player, "password-require-number", "&c密码需要至少包含一个数字。"));
+            return false;
+        }
+        if (getConfig().getBoolean("password-strength.require-symbol", false)
+                && password.chars().allMatch(Character::isLetterOrDigit)) {
+            player.sendMessage(message(player, "password-require-symbol", "&c密码需要至少包含一个符号。"));
             return false;
         }
         return true;
@@ -943,11 +1183,15 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private boolean isVerified(Player player) {
-        return authenticated.contains(player.getUniqueId()) || player.hasPermission("logingate.bypass");
+        return authenticated.contains(player.getUniqueId());
     }
 
     private PlayerRecord getRecord(Player player) {
         return records.get(player.getName().toLowerCase(Locale.ROOT));
+    }
+
+    private PlayerRecord getRecordByName(String name) {
+        return name == null ? null : records.get(name.toLowerCase(Locale.ROOT));
     }
 
     private boolean isLocked(Player player) {
@@ -1025,8 +1269,117 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         return lockedUntil;
     }
 
+    private boolean isVerificationLocked(Player player) {
+        return getVerificationLockedUntil(player) > System.currentTimeMillis();
+    }
+
+    private long getVerificationLockedUntil(Player player) {
+        long lockedUntil = verificationLocks.getOrDefault(player.getUniqueId(), 0L);
+        PlayerRecord record = getRecord(player);
+        if (record != null) {
+            lockedUntil = Math.max(lockedUntil, record.verificationLockedUntil);
+        }
+        return lockedUntil;
+    }
+
+    private void showVerificationLockedMessage(Player player) {
+        long seconds = Math.max(1L, (getVerificationLockedUntil(player) - System.currentTimeMillis() + 999L) / 1000L);
+        player.sendMessage(message(player, "verification-code-locked",
+                "&c验证码错误次数过多，请等待 &e%seconds% &c秒后重新操作。",
+                "%seconds%", String.valueOf(seconds)));
+    }
+
+    private void handleCodeFailure(Player player, Session session, boolean expired) {
+        if (expired) {
+            showVerificationFailure(player, session, true);
+            sessions.remove(player.getUniqueId());
+            return;
+        }
+
+        session.codeAttempts++;
+        int maxAttempts = Math.max(1, getConfig().getInt("verification-code.max-attempts", 3));
+        if (session.codeAttempts >= maxAttempts) {
+            long lockedUntil = System.currentTimeMillis() + getConfig().getInt("verification-code.lock-minutes", 3) * 60_000L;
+            verificationLocks.put(player.getUniqueId(), lockedUntil);
+            PlayerRecord record = getRecord(player);
+            if (record != null) {
+                record.verificationLockedUntil = lockedUntil;
+                saveRecords();
+            }
+            sessions.remove(player.getUniqueId());
+            logSecurity("verification-code-locked", player, "mode=" + session.mode);
+            showVerificationLockedMessage(player);
+            return;
+        }
+
+        int left = Math.max(0, maxAttempts - session.codeAttempts);
+        player.sendMessage(message(player, "verification-code-wrong",
+                "&c验证码不正确，剩余尝试次数：&e%left%",
+                "%left%", String.valueOf(left)));
+    }
+
     private boolean checkCode(Session session, String input) {
         return session.code != null && session.code.equals(input.trim()) && session.expiresAt >= System.currentTimeMillis();
+    }
+
+    private boolean isEmailAvailable(String email, String ownerName) {
+        if (!getConfig().getBoolean("email-unique.enabled", true)) {
+            return true;
+        }
+        String normalizedEmail = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        String normalizedOwner = ownerName == null ? "" : ownerName.trim().toLowerCase(Locale.ROOT);
+        for (Map.Entry<String, PlayerRecord> entry : records.entrySet()) {
+            PlayerRecord record = entry.getValue();
+            if (record.email != null
+                    && record.email.trim().equalsIgnoreCase(normalizedEmail)
+                    && !entry.getKey().equalsIgnoreCase(normalizedOwner)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean canUseRememberedSession(Player player, PlayerRecord record) {
+        if (record == null || !getConfig().getBoolean("remember-session.enabled", true) || !record.rememberLogin) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        String currentIp = getAddress(player);
+        if (record.rememberUntil <= now || record.rememberIp == null || !record.rememberIp.equals(currentIp)) {
+            return false;
+        }
+        record.lastIp = currentIp;
+        record.lastLoginAt = STORE_TIME.format(Instant.now());
+        record.lastVerifiedAt = record.lastLoginAt;
+        updateRememberedSession(player, record);
+        saveRecords();
+        return true;
+    }
+
+    private void updateRememberedSession(Player player, PlayerRecord record) {
+        if (record == null || !record.rememberLogin || !getConfig().getBoolean("remember-session.enabled", true)) {
+            return;
+        }
+        long minutes = Math.max(1L, getConfig().getLong("remember-session.expire-minutes", 10L));
+        record.rememberIp = getAddress(player);
+        record.rememberUntil = System.currentTimeMillis() + minutes * 60_000L;
+    }
+
+    private boolean isBackendRole() {
+        String role = getConfig().getString("multi-server.server-role", "standalone");
+        return role != null && "backend".equalsIgnoreCase(role);
+    }
+
+    private void handleBackendJoin(Player player) {
+        PlayerRecord record = getRecord(player);
+        long allowedMillis = Math.max(1L, getConfig().getLong("multi-server.backend-verified-window-seconds", 300L)) * 1000L;
+        if (record != null && parseStoredMillis(record.lastVerifiedAt) + allowedMillis >= System.currentTimeMillis()) {
+            authenticated.add(player.getUniqueId());
+            showAllPlayers(player);
+            player.sendMessage(message(player, "backend-verified", "&a已确认你的登录验证状态，欢迎进入主服务器。"));
+            return;
+        }
+        player.kickPlayer(message(player, "backend-unverified-kick", "&c未检测到有效登录验证记录，请先进入登录服务器完成验证。"));
     }
 
     private String createCode() {
@@ -1089,6 +1442,56 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 }
             });
         });
+    }
+
+    private void sendSecurityNoticeAsync(String email, String subject, String body) {
+        if (email == null || email.isBlank() || !getConfig().getBoolean("security-mail.enabled", true)) {
+            return;
+        }
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                sendEmail(email, subject, body);
+            } catch (IOException ex) {
+                getLogger().warning("Failed to send security notice to " + maskEmail(email) + ": " + ex.getMessage());
+            }
+        });
+    }
+
+    private void logSecurity(String action, Player player, String details) {
+        if (!getConfig().getBoolean("security-log.enabled", true)) {
+            return;
+        }
+        String name = player == null ? "CONSOLE" : player.getName();
+        String ip = player == null ? "" : getAddress(player);
+        String line = STORE_TIME.format(Instant.now())
+                + " action=" + action
+                + " player=" + name
+                + " ip=" + ip
+                + (details == null || details.isBlank() ? "" : " " + details)
+                + System.lineSeparator();
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                if (securityLogFile == null) {
+                    return;
+                }
+                Files.writeString(securityLogFile.toPath(), line, StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.APPEND);
+            } catch (IOException ex) {
+                getLogger().warning("Could not write security log: " + ex.getMessage());
+            }
+        });
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return "";
+        }
+        int at = email.indexOf('@');
+        if (at <= 1) {
+            return "***" + (at >= 0 ? email.substring(at) : "");
+        }
+        return email.charAt(0) + "***" + email.substring(at);
     }
 
     private boolean sendEmail(String to, String subject, String body) throws IOException {
@@ -1378,9 +1781,18 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         }
         recordsFile = new File(dataFolder, "players.yml");
         recordsConfig = YamlConfiguration.loadConfiguration(recordsFile);
+        File logsFolder = new File(getDataFolder(), "logs");
+        if (!logsFolder.exists() && !logsFolder.mkdirs()) {
+            getLogger().warning("Could not create logs folder.");
+        }
+        securityLogFile = new File(logsFolder, "security.log");
     }
 
     private void loadRecords() {
+        if (isDatabaseStorage()) {
+            loadRecordsFromDatabase();
+            return;
+        }
         records.clear();
         if (!recordsConfig.isConfigurationSection("players")) {
             return;
@@ -1397,12 +1809,21 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             record.lastIp = recordsConfig.getString(path + "ip", "");
             record.generatedUuid = recordsConfig.getString(path + "generatedUuid", "");
             record.lockedUntil = recordsConfig.getLong(path + "lockedUntil", 0L);
+            record.verificationLockedUntil = recordsConfig.getLong(path + "verificationLockedUntil", 0L);
+            record.rememberLogin = recordsConfig.getBoolean(path + "rememberLogin", false);
+            record.rememberIp = recordsConfig.getString(path + "rememberIp", "");
+            record.rememberUntil = recordsConfig.getLong(path + "rememberUntil", 0L);
+            record.lastVerifiedAt = recordsConfig.getString(path + "lastVerifiedAt", "");
             record.language = normalizeLanguage(recordsConfig.getString(path + "language", getDefaultLanguage()));
             records.put(key.toLowerCase(Locale.ROOT), record);
         }
     }
 
     private void saveRecords() {
+        if (isDatabaseStorage()) {
+            saveRecordsToDatabase();
+            return;
+        }
         recordsConfig.set("players", null);
         for (Map.Entry<String, PlayerRecord> entry : records.entrySet()) {
             PlayerRecord record = entry.getValue();
@@ -1416,12 +1837,138 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             recordsConfig.set(path + "ip", record.lastIp);
             recordsConfig.set(path + "generatedUuid", record.generatedUuid);
             recordsConfig.set(path + "lockedUntil", record.lockedUntil);
+            recordsConfig.set(path + "verificationLockedUntil", record.verificationLockedUntil);
+            recordsConfig.set(path + "rememberLogin", record.rememberLogin);
+            recordsConfig.set(path + "rememberIp", record.rememberIp);
+            recordsConfig.set(path + "rememberUntil", record.rememberUntil);
+            recordsConfig.set(path + "lastVerifiedAt", record.lastVerifiedAt);
             recordsConfig.set(path + "language", normalizeLanguage(record.language));
         }
         try {
             recordsConfig.save(recordsFile);
         } catch (IOException ex) {
             getLogger().severe("Could not save PlayerInfo: " + ex.getMessage());
+        }
+    }
+
+    private boolean isDatabaseStorage() {
+        String type = getConfig().getString("storage.type", "yaml");
+        return type != null && !"yaml".equalsIgnoreCase(type);
+    }
+
+    private Connection openStorageConnection() throws SQLException {
+        String type = getConfig().getString("storage.type", "yaml");
+        if ("mysql".equalsIgnoreCase(type) || "mariadb".equalsIgnoreCase(type)) {
+            String url = getConfig().getString("storage.mysql.jdbc-url", "");
+            if (url == null || url.isBlank()) {
+                String host = getConfig().getString("storage.mysql.host", "localhost");
+                int port = getConfig().getInt("storage.mysql.port", 3306);
+                String database = getConfig().getString("storage.mysql.database", "logingate");
+                url = "jdbc:mysql://" + host + ":" + port + "/" + database + "?useSSL=false&characterEncoding=utf8";
+            }
+            return DriverManager.getConnection(url,
+                    getConfig().getString("storage.mysql.username", "root"),
+                    getConfig().getString("storage.mysql.password", ""));
+        }
+
+        File databaseFile = new File(getDataFolder(), getConfig().getString("storage.sqlite.file", "PlayerInfo/players.db"));
+        File parent = databaseFile.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            getLogger().warning("Could not create SQLite parent folder.");
+        }
+        return DriverManager.getConnection("jdbc:sqlite:" + databaseFile.getAbsolutePath());
+    }
+
+    private void ensureDatabaseSchema(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS logingate_players ("
+                    + "name VARCHAR(64) PRIMARY KEY,"
+                    + "email TEXT,"
+                    + "game_name TEXT,"
+                    + "password_hash TEXT,"
+                    + "password_salt TEXT,"
+                    + "registered_at TEXT,"
+                    + "last_login_at TEXT,"
+                    + "ip TEXT,"
+                    + "generated_uuid TEXT,"
+                    + "locked_until BIGINT,"
+                    + "verification_locked_until BIGINT,"
+                    + "remember_login BOOLEAN,"
+                    + "remember_ip TEXT,"
+                    + "remember_until BIGINT,"
+                    + "last_verified_at TEXT,"
+                    + "language TEXT"
+                    + ")");
+        }
+    }
+
+    private void loadRecordsFromDatabase() {
+        records.clear();
+        try (Connection connection = openStorageConnection()) {
+            ensureDatabaseSchema(connection);
+            try (Statement statement = connection.createStatement();
+                 ResultSet result = statement.executeQuery("SELECT * FROM logingate_players")) {
+                while (result.next()) {
+                    PlayerRecord record = new PlayerRecord();
+                    String name = result.getString("name");
+                    record.email = result.getString("email");
+                    record.gameName = result.getString("game_name");
+                    record.passwordHash = result.getString("password_hash");
+                    record.passwordSalt = result.getString("password_salt");
+                    record.registeredAt = result.getString("registered_at");
+                    record.lastLoginAt = result.getString("last_login_at");
+                    record.lastIp = result.getString("ip");
+                    record.generatedUuid = result.getString("generated_uuid");
+                    record.lockedUntil = result.getLong("locked_until");
+                    record.verificationLockedUntil = result.getLong("verification_locked_until");
+                    record.rememberLogin = result.getBoolean("remember_login");
+                    record.rememberIp = result.getString("remember_ip");
+                    record.rememberUntil = result.getLong("remember_until");
+                    record.lastVerifiedAt = result.getString("last_verified_at");
+                    record.language = normalizeLanguage(result.getString("language"));
+                    records.put(name.toLowerCase(Locale.ROOT), record);
+                }
+            }
+        } catch (SQLException ex) {
+            getLogger().severe("Could not load database records: " + ex.getMessage());
+        }
+    }
+
+    private void saveRecordsToDatabase() {
+        try (Connection connection = openStorageConnection()) {
+            ensureDatabaseSchema(connection);
+            connection.setAutoCommit(false);
+            try (Statement clear = connection.createStatement()) {
+                clear.executeUpdate("DELETE FROM logingate_players");
+            }
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO logingate_players (name,email,game_name,password_hash,password_salt,registered_at,last_login_at,ip,generated_uuid,locked_until,verification_locked_until,remember_login,remember_ip,remember_until,last_verified_at,language) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                for (Map.Entry<String, PlayerRecord> entry : records.entrySet()) {
+                    PlayerRecord record = entry.getValue();
+                    statement.setString(1, entry.getKey());
+                    statement.setString(2, record.email);
+                    statement.setString(3, record.gameName);
+                    statement.setString(4, record.passwordHash);
+                    statement.setString(5, record.passwordSalt);
+                    statement.setString(6, record.registeredAt);
+                    statement.setString(7, record.lastLoginAt);
+                    statement.setString(8, record.lastIp);
+                    statement.setString(9, record.generatedUuid);
+                    statement.setLong(10, record.lockedUntil);
+                    statement.setLong(11, record.verificationLockedUntil);
+                    statement.setBoolean(12, record.rememberLogin);
+                    statement.setString(13, record.rememberIp);
+                    statement.setLong(14, record.rememberUntil);
+                    statement.setString(15, record.lastVerifiedAt);
+                    statement.setString(16, normalizeLanguage(record.language));
+                    statement.addBatch();
+                }
+                statement.executeBatch();
+            }
+            connection.commit();
+        } catch (SQLException ex) {
+            getLogger().severe("Could not save database records: " + ex.getMessage());
         }
     }
 
@@ -1504,6 +2051,17 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return DISPLAY_TIME.format(ZonedDateTime.parse(stored));
         } catch (DateTimeParseException ex) {
             return stored;
+        }
+    }
+
+    private long parseStoredMillis(String stored) {
+        if (stored == null || stored.isBlank()) {
+            return 0L;
+        }
+        try {
+            return ZonedDateTime.parse(stored).toInstant().toEpochMilli();
+        } catch (DateTimeParseException ex) {
+            return 0L;
         }
     }
 
@@ -1625,6 +2183,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         private String code;
         private long expiresAt;
         private int failedAttempts;
+        private int codeAttempts;
         private long lockedUntil;
 
         private Session(SessionMode mode) {
@@ -1642,6 +2201,11 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         private String lastIp;
         private String generatedUuid;
         private long lockedUntil;
+        private long verificationLockedUntil;
+        private boolean rememberLogin;
+        private String rememberIp;
+        private long rememberUntil;
+        private String lastVerifiedAt;
         private String language;
     }
 

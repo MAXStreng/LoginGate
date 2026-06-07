@@ -1,5 +1,5 @@
 {
-  "version": "v1.4.1",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.4.1",
-  "body": "新增配置自动迁移功能：旧版 config.yml 和 lang/*.yml 会在启动时自动补齐新版本缺失的默认配置项，已有配置值和玩家数据不会被覆盖。"
+  "version": "v1.5.0",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.5.0",
+  "body": "新增玩家自选记住登录、管理员命令、安全日志与安全提醒邮件、验证码尝试锁定、邮箱唯一性、密码强度策略、SQLite/MySQL 存储，以及多服后端验证支持。管理员玩家也必须完成登录验证。"
 }

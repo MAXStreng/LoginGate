@@ -1,5 +1,5 @@
 name: LoginGate
-version: 1.4.1
+version: 1.5.0
 main: com.mc.logingate.LoginGatePlugin
 api-version: '1.20'
 author: Codex
@@ -20,7 +20,13 @@ commands:
   lang:
     description: Switch LoginGate language.
     usage: /lang <zh|en>
+  rememberlogin:
+    description: Toggle remembered login session for yourself.
+    usage: /rememberlogin <on|off>
+  logingate:
+    description: LoginGate admin commands.
+    usage: /logingate <reload|info|unlock|resetpwd>
 permissions:
-  logingate.bypass:
-    description: Bypass LoginGate verification.
+  logingate.admin:
+    description: Use LoginGate admin commands after verification.
     default: op
