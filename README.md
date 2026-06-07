@@ -6,6 +6,14 @@ LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
 It sends players to a dedicated login world first, handles email registration, password login, password reset, and only then transfers verified players to the main world.
 
+## Compatibility
+
+- Recommended server: Mohist `1.20.1`
+- Bukkit API: `1.20`
+- Java: `17` or newer
+- Proxy compatibility: BungeeCord / Velocity, through the multi-server transfer mode
+- Other Bukkit / Spigot / Paper-derived servers are not the primary test target and may work, but full compatibility is not guaranteed.
+
 ## Features
 
 - Dedicated login world with configurable terrain: `void`, `flat`, or `normal`.
