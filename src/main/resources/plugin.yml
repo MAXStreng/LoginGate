@@ -1,0 +1,26 @@
+name: LoginGate
+version: 1.3.0
+main: com.mc.logingate.LoginGatePlugin
+api-version: '1.20'
+author: Codex
+description: Login lobby, email verification, and password gate for Mohist servers.
+commands:
+  register:
+    description: Start email registration.
+    usage: /register
+  login:
+    description: Login with your account password.
+    usage: /login
+  changepwd:
+    description: Reset your password by email verification.
+    usage: /changepwd
+  bindemail:
+    description: Rebind the email address for an existing account.
+    usage: /bindemail [email]
+  lang:
+    description: Switch LoginGate language.
+    usage: /lang <zh|en>
+permissions:
+  logingate.bypass:
+    description: Bypass LoginGate verification.
+    default: op
