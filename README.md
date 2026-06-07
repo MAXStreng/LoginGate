@@ -21,6 +21,7 @@ It sends players to a dedicated login world first, handles email registration, p
 - Configurable join, post-register, and post-login custom messages.
 - Fine-grained state messages for first enter, logging in, verification success, locked, and email bind success.
 - New player guide messages after successful registration.
+- Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
 - Language files with `/lang zh` and `/lang en`.
 - Login world controls: no monsters, no weather cycle, locked time, invulnerability, freeze, and player hiding.
 
@@ -51,6 +52,8 @@ Important entries:
 - `messages.verification-failed-title`, `messages.verification-invalid-*`, `messages.verification-expired-*`: text for wrong or expired code pages.
 - `messages.suspicious-login`: warning shown when the current IP differs from the last recorded IP.
 - `messages.bind-*` and `mail.bind-subject`: email rebind flow and mail subject text.
+- `update-check.enabled`: whether to check for updates during plugin startup.
+- `update-check.manifest-url`: public update manifest URL. By default it reads `update.json` from this repository.
 - `smtp`: mail server settings.
 
 ## Language Files

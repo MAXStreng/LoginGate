@@ -65,7 +65,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private static final DateTimeFormatter STORE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME.withZone(ZoneId.systemDefault());
     private static final DateTimeFormatter DISPLAY_TIME = DateTimeFormatter.ofPattern("yyyy年MM月dd日-HH时mm分ss秒").withZone(ZoneId.systemDefault());
     private static final String GITHUB_REPOSITORY_URL = "https://github.com/MAXStreng/LoginGate";
-    private static final String GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/MAXStreng/LoginGate/releases/latest";
+    private static final String DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/MAXStreng/LoginGate/main/update.json";
 
     private final SecureRandom random = new SecureRandom();
     private final Map<UUID, Session> sessions = new HashMap<>();
@@ -328,6 +328,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private void checkUpdateAndPrint() {
+        if (!getConfig().getBoolean("update-check.enabled", true)) {
+            startupInfo("当前版本" + withVersionPrefix(getDescription().getVersion()) + "，更新检查已关闭，前往" + GITHUB_REPOSITORY_URL + "仓库链接下载最新版本");
+            startupInfo("大功告成！目前生锈的门还能撑一段时间......");
+            return;
+        }
+
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
             UpdateInfo updateInfo = fetchLatestRelease();
             Bukkit.getScheduler().runTask(this, () -> {
@@ -356,12 +362,17 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private UpdateInfo fetchLatestRelease() {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(GITHUB_LATEST_RELEASE_API);
+            String manifestUrl = getConfig().getString("update-check.manifest-url", DEFAULT_UPDATE_MANIFEST_URL);
+            if (manifestUrl == null || manifestUrl.isBlank()) {
+                manifestUrl = DEFAULT_UPDATE_MANIFEST_URL;
+            }
+
+            URL url = new URL(manifestUrl);
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(8000);
             connection.setRequestMethod("GET");
-            connection.setRequestProperty("Accept", "application/vnd.github+json");
+            connection.setRequestProperty("Accept", "application/json,text/plain,*/*");
             connection.setRequestProperty("User-Agent", "LoginGate/" + getDescription().getVersion());
 
             int responseCode = connection.getResponseCode();
@@ -380,15 +391,24 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             }
 
             UpdateInfo info = new UpdateInfo();
-            info.version = jsonValue(json, "tag_name");
+            info.version = jsonValue(json, "version");
+            if (info.version == null || info.version.isBlank()) {
+                info.version = jsonValue(json, "tag_name");
+            }
             if (info.version == null || info.version.isBlank()) {
                 info.version = jsonValue(json, "name");
             }
             info.url = jsonValue(json, "html_url");
             if (info.url == null || info.url.isBlank()) {
+                info.url = jsonValue(json, "url");
+            }
+            if (info.url == null || info.url.isBlank()) {
                 info.url = GITHUB_REPOSITORY_URL;
             }
             info.body = jsonValue(json, "body");
+            if (info.body == null || info.body.isBlank()) {
+                info.body = jsonValue(json, "description");
+            }
             return info;
         } catch (IOException ex) {
             return null;

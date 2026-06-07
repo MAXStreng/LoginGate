@@ -34,6 +34,12 @@ max-login-attempts: 3
 # 同一个邮箱重复获取验证码的冷却时间，单位为秒。
 email-code-cooldown-seconds: 60
 
+update-check:
+  # 是否在插件启动时检查 GitHub 最新版本。
+  enabled: true
+  # 公开更新清单地址。默认使用 raw.githubusercontent.com，不依赖 GitHub API，也不需要 Token。
+  manifest-url: "https://raw.githubusercontent.com/MAXStreng/LoginGate/main/update.json"
+
 login-world-generation:
   # 登录世界地形类型。可选：void（虚空）、flat（超平坦）、normal（正常世界）。默认虚空。
   type: "void"
