@@ -2072,10 +2072,15 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         if (!getConfig().getBoolean(enabledPath, false)) {
             return;
         }
-        FileConfiguration language = languageConfigs.get(getPlayerLanguage(player));
-        java.util.List<String> messages = language != null && language.isList(path)
-                ? language.getStringList(path)
-                : getConfig().getStringList(path);
+        java.util.List<String> messages;
+        if (preferConfigMessages() && getConfig().isList(path)) {
+            messages = getConfig().getStringList(path);
+        } else {
+            FileConfiguration language = languageConfigs.get(getPlayerLanguage(player));
+            messages = language != null && language.isList(path)
+                    ? language.getStringList(path)
+                    : getConfig().getStringList(path);
+        }
         for (String raw : messages) {
             player.sendMessage(color(applyPlaceholders(player, raw)));
         }
@@ -2107,6 +2112,9 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private String mailSubject(Player player, String key, String fallback) {
+        if (preferConfigMessages() && getConfig().isString("mail." + key)) {
+            return getConfig().getString("mail." + key, fallback);
+        }
         FileConfiguration language = languageConfigs.get(getPlayerLanguage(player));
         if (language != null && language.isString("mail." + key)) {
             return language.getString("mail." + key, fallback);
@@ -2119,6 +2127,9 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private String localizedRaw(Player player, String key, String fallback) {
+        if (preferConfigMessages() && getConfig().isString("messages." + key)) {
+            return getConfig().getString("messages." + key, fallback);
+        }
         FileConfiguration language = languageConfigs.get(getPlayerLanguage(player));
         if (language != null && language.isString("messages." + key)) {
             return language.getString("messages." + key, fallback);
@@ -2128,6 +2139,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return defaultLanguage.getString("messages." + key, fallback);
         }
         return getConfig().getString("messages." + key, fallback);
+    }
+
+    private boolean preferConfigMessages() {
+        return "config".equalsIgnoreCase(getConfig().getString("message-source", "lang"));
     }
 
     private String getPlayerLanguage(Player player) {

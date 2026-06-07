@@ -1,5 +1,5 @@
 {
-  "version": "v1.5.0",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.5.0",
-  "body": "新增玩家自选记住登录、管理员命令、安全日志与安全提醒邮件、验证码尝试锁定、邮箱唯一性、密码强度策略、SQLite/MySQL 存储，以及多服后端验证支持。管理员玩家也必须完成登录验证。"
+  "version": "v1.5.1",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.5.1",
+  "body": "优化消息配置来源，新增 message-source 选项。默认优先使用 lang/zh.yml 与 lang/en.yml 支持中英文切换，也可切换为 config 模式，只在 config.yml 中维护普通提示和邮件标题。"
 }

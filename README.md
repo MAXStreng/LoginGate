@@ -77,15 +77,22 @@ Important entries:
 - `security-mail`: security notice mail switch.
 - `storage`: player data storage, one of `yaml`, `sqlite`, `mysql`, or `mariadb`.
 - `default-language`: default language, `zh` or `en`.
+- `message-source`: normal text source. Use `lang` for language files first or `config` for config.yml first.
 - `email-code-cooldown-seconds`: cooldown for requesting a new email code for the same email address.
 - `state-messages`: separate configurable message groups for first enter, logging in, verification success, locked, and email bind success.
 - `custom-messages`: configurable messages shown on join, after registration, and after login.
-- `messages.verification-failed-title`, `messages.verification-invalid-*`, `messages.verification-expired-*`: text for wrong or expired code pages.
-- `messages.suspicious-login`: warning shown when the current IP differs from the last recorded IP.
-- `messages.bind-*` and `mail.bind-subject`: email rebind flow and mail subject text.
 - `update-check.enabled`: whether to check for updates during plugin startup.
 - `update-check.manifest-url`: public update manifest URL. By default it reads `update.json` from this repository.
 - `smtp`: mail server settings.
+
+## Message Customization
+
+Normal messages can be maintained in two ways:
+
+- `message-source: "lang"`: default mode. LoginGate reads `plugins/LoginGate/lang/zh.yml` or `plugins/LoginGate/lang/en.yml` first, which keeps `/lang zh` and `/lang en` useful.
+- `message-source: "config"`: single-file mode. LoginGate reads `messages` and `mail` from `config.yml` first, useful for servers that only want to edit one file.
+
+`state-messages` and `custom-messages` are server-specific message groups and remain in `config.yml`. Existing legacy `messages` and `mail` entries in older configs are kept compatible.
 
 ## Multi-Server Mode
 
@@ -140,6 +147,8 @@ Language files are copied to:
 `plugins/LoginGate/lang/en.yml`
 
 Players can switch language with `/lang zh` or `/lang en`. Registered players keep their chosen language in `PlayerInfo/players.yml`.
+
+When `message-source` is `lang`, edit regular titles, subtitles, chat prompts, and mail subjects in the language files. When it is `config`, `config.yml` entries under `messages` and `mail` take priority.
 
 ## SMTP
 

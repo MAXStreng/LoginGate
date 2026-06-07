@@ -4,6 +4,10 @@ server-name: "Pureblock | 纯境方块"
 # 默认语言。可选：zh、en。
 default-language: "zh"
 
+# 普通提示文案读取来源。lang=优先读取 lang/zh.yml 或 lang/en.yml；config=优先读取本文件的 messages/mail。
+# 想保留 /lang 中英文切换时建议使用 lang；只想改一个文件时可改为 config。
+message-source: "lang"
+
 # 绑定登录世界名称。留空时插件会按 login-world-generation.type 自动创建 login_void、login_flat 或 login_normal。
 loginworld: ""
 
@@ -133,6 +137,8 @@ login-world-settings:
   hide-other-players: true
 
 messages:
+  # 兼容旧版与单文件配置模式：当 message-source 为 config 时，这里的普通提示文案优先于 lang 文件。
+  # 当 message-source 为 lang 时，普通提示请优先修改 plugins/LoginGate/lang/zh.yml 或 lang/en.yml。
   # 欢迎界面的主标题。
   welcome-title: "&d&lPureblock &8| &b纯境方块"
   # 未注册玩家看到的欢迎副标题。
