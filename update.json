@@ -1,5 +1,5 @@
 {
-  "version": "v1.4.0",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.4.0",
-  "body": "新增多服兼容模式，可在登录验证成功后通过 BungeeCord / Velocity 插件消息连接到配置的目标子服。"
+  "version": "v1.4.1",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.4.1",
+  "body": "新增配置自动迁移功能：旧版 config.yml 和 lang/*.yml 会在启动时自动补齐新版本缺失的默认配置项，已有配置值和玩家数据不会被覆盖。"
 }

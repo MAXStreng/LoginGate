@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.4.0`
+Current version: `v1.4.1`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
@@ -31,6 +31,7 @@ It sends players to a dedicated login world first, handles email registration, p
 - New player guide messages after successful registration.
 - Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
 - Multi-server compatibility mode for transferring verified players through BungeeCord / Velocity plugin messages.
+- Automatic configuration migration fills missing new default options while keeping existing values.
 - Language files with `/lang zh` and `/lang en`.
 - Login world controls: no monsters, no weather cycle, locked time, invulnerability, freeze, and player hiding.
 
@@ -79,6 +80,15 @@ multi-server:
 ```
 
 `target-server` must match the server name configured in the proxy. Velocity setups can change `plugin-message-channel` to `bungeecord:main` when needed.
+
+## Configuration Migration
+
+On startup, LoginGate checks `config.yml` and `lang/*.yml`, then fills any missing options that exist in the bundled defaults.
+
+- Existing values are kept and are not overwritten by defaults.
+- Player data in `PlayerInfo/players.yml` is not part of configuration migration and will not be cleared.
+- A backup is created before migration, such as `config.yml.backup-timestamp`.
+- Old custom options removed from newer defaults are not actively deleted, so custom server-side entries are not lost.
 
 ## Language Files
 

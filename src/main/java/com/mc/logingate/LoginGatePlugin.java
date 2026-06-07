@@ -11,6 +11,7 @@ import org.bukkit.WorldType;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Monster;
@@ -39,12 +40,15 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.time.Instant;
@@ -87,6 +91,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        migrateConfigDefaults();
         setupLanguages();
         setupRecords();
         loadRecords();
@@ -110,6 +115,69 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     public void onDisable() {
         Bukkit.getMessenger().unregisterOutgoingPluginChannel(this);
         saveRecords();
+    }
+
+    private void migrateConfigDefaults() {
+        int added = migrateYamlDefaults("config.yml", new File(getDataFolder(), "config.yml"));
+        if (added > 0) {
+            reloadConfig();
+            getLogger().info("Migrated config.yml with " + added + " missing default option(s). Existing values were kept.");
+        }
+    }
+
+    private int migrateYamlDefaults(String resourcePath, File targetFile) {
+        if (!targetFile.exists()) {
+            return 0;
+        }
+
+        try (InputStream input = getResource(resourcePath)) {
+            if (input == null) {
+                getLogger().warning("Could not find bundled resource for migration: " + resourcePath);
+                return 0;
+            }
+
+            YamlConfiguration defaults = YamlConfiguration.loadConfiguration(new InputStreamReader(input, StandardCharsets.UTF_8));
+            YamlConfiguration current = YamlConfiguration.loadConfiguration(targetFile);
+            int added = copyMissingDefaults(defaults, current);
+            if (added <= 0) {
+                return 0;
+            }
+
+            backupBeforeMigration(targetFile);
+            current.save(targetFile);
+            return added;
+        } catch (IOException ex) {
+            getLogger().warning("Could not migrate " + targetFile.getName() + ": " + ex.getMessage());
+            return 0;
+        }
+    }
+
+    private int copyMissingDefaults(ConfigurationSection defaults, ConfigurationSection current) {
+        int added = 0;
+        for (String key : defaults.getKeys(false)) {
+            if (defaults.isConfigurationSection(key)) {
+                if (!current.contains(key)) {
+                    current.createSection(key);
+                }
+                ConfigurationSection defaultSection = defaults.getConfigurationSection(key);
+                ConfigurationSection currentSection = current.getConfigurationSection(key);
+                if (defaultSection != null && currentSection != null) {
+                    added += copyMissingDefaults(defaultSection, currentSection);
+                }
+                continue;
+            }
+
+            if (!current.contains(key)) {
+                current.set(key, defaults.get(key));
+                added++;
+            }
+        }
+        return added;
+    }
+
+    private void backupBeforeMigration(File targetFile) throws IOException {
+        File backupFile = new File(targetFile.getParentFile(), targetFile.getName() + ".backup-" + System.currentTimeMillis());
+        Files.copy(targetFile.toPath(), backupFile.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
     }
 
     @Override
@@ -1296,6 +1364,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         File file = new File(getDataFolder(), "lang/" + language + ".yml");
         if (!file.exists()) {
             saveResource("lang/" + language + ".yml", false);
+        }
+        int added = migrateYamlDefaults("lang/" + language + ".yml", file);
+        if (added > 0) {
+            getLogger().info("Migrated lang/" + language + ".yml with " + added + " missing default message(s). Existing values were kept.");
         }
     }
 
