@@ -1,6 +1,6 @@
 # LoginGate 中文说明
 
-当前版本：`v1.3.0`
+当前版本：`v1.3.1`
 
 LoginGate 是为 Minecraft 1.20.1 Mohist/Bukkit 服务端制作的登录大厅身份验证插件。
 

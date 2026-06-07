@@ -1,5 +1,5 @@
 {
-  "version": "v1.3.0",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.3.0",
+  "version": "v1.3.1",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.3.1",
   "body": "新增 /bindemail 邮箱改绑、验证码失败独立提示页、登录环境异常提醒、新玩家注册引导，以及更细的状态消息自定义配置。"
 }
