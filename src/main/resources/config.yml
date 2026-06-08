@@ -135,6 +135,24 @@ multi-server:
   # 后端子服接受最近多少秒内完成登录验证的玩家。
   backend-verified-window-seconds: 300
 
+bridge-verification:
+  # 是否启用登录服到主服的本地桥接验证。用于 Login 子服签发通行证、MC 主服校验通行证。
+  enabled: false
+  # 桥接方式。当前支持 file，本机多服推荐使用 file。
+  type: "file"
+  # 本地桥接目录。登录服和主服必须填写同一个目录。
+  directory: "LoginGateBridge"
+  # HMAC 签名密钥。首次启用且留空时会自动生成；登录服和主服必须完全一致。
+  secret: ""
+  # 主服校验时是否要求 IP 与登录服签发通行证时一致。
+  require-ip-match: true
+  # 主服校验时是否要求 Minecraft UUID 与登录服签发通行证时一致。
+  require-uuid-match: true
+  # 主服校验通过后是否立即删除通行证，防止重复使用。
+  consume-on-success: true
+  # 玩家绕过登录服直接进入主服时的踢出提示。
+  illegal-bypass-kick: "&c&l您目前的身份验证状态为：非法绕过身份验证！"
+
 # 登录成功后传送到主世界前的倒计时秒数。
 post-login-countdown-seconds: 3
 

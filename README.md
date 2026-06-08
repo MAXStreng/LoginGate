@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.6.5`
+Current version: `v1.7.0`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
@@ -38,6 +38,7 @@ It sends players to a dedicated login world first, handles email registration, p
 - New player guide messages after successful registration.
 - Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
 - Multi-server compatibility mode for transferring verified players through BungeeCord / Velocity plugin messages.
+- Local bridge tickets for login-server to backend-server verification, so backend servers only allow players verified by the login server.
 - Automatic configuration migration fills missing new default options while keeping existing values.
 - Player-controlled remembered login sessions through `/rememberlogin on|off`, disabled per player by default.
 - Unique email binding, verification code attempt lockouts, and configurable password strength rules.
@@ -80,6 +81,7 @@ Important entries:
 - `post-login-location`: post-login destination strategy, either spawn or last saved location.
 - `post-login-commands`: commands to run after a player is teleported to the local main world.
 - `multi-server`: multi-server compatibility settings. Disabled by default; when enabled, verified players can be sent to a proxy target server.
+- `bridge-verification`: one-time shared verification tickets between the login server and backend servers. Both sides must use the same directory and `secret`.
 - `remember-session`: player-controlled short remembered login settings.
 - `verification-code`: maximum wrong code attempts and lock duration.
 - `email-unique`: one-email-per-account policy.
@@ -149,6 +151,7 @@ LoginGate still uses local world teleport by default. For BungeeCord / Velocity 
 
 ```yaml
 multi-server:
+  server-role: "login"
   enabled: true
   transfer-mode: "proxy"
   target-server: "Pureblock"
@@ -163,9 +166,19 @@ Backend servers can use:
 multi-server:
   server-role: "backend"
   backend-verified-window-seconds: 300
+
+bridge-verification:
+  enabled: true
+  type: "file"
+  directory: "C:/Users/ohhhh/Desktop/LoginGateBridge"
+  secret: "same value on login and backend servers"
+  require-ip-match: true
+  require-uuid-match: true
+  consume-on-success: true
+  illegal-bypass-kick: "&c&l您目前的身份验证状态为：非法绕过身份验证！"
 ```
 
-For shared verification state across servers, use `storage.type: "mysql"` or `storage.type: "mariadb"` so the login server and backend servers read the same player data.
+For two servers on the same machine, use `bridge-verification` with a shared local directory. For servers on different machines, use `storage.type: "mysql"` or `storage.type: "mariadb"` instead.
 
 ## Admin Commands
 

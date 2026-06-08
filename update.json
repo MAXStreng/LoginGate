@@ -1,5 +1,5 @@
 {
-  "version": "v1.6.5",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.5",
-  "body": "新增登录成功快照恢复策略。服主可配置是否恢复完整玩家快照，并可单独控制传送到主世界出生点时是否恢复；默认 last-location 恢复背包、模式、经验和药水效果等快照内容，spawn 不恢复快照。"
+  "version": "v1.7.0",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.7.0",
+  "body": "新增 Velocity/BungeeCord 双服验证桥接。登录服验证成功后会签发带 HMAC 签名的一次性本地通行证，主服校验玩家名、UUID、IP、过期时间和签名后才放行；非法绕过登录服的玩家会被主服踢出。"
 }

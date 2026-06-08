@@ -35,7 +35,9 @@ import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.TextComponent;
 
 import javax.crypto.SecretKeyFactory;
+import javax.crypto.Mac;
 import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import java.io.BufferedReader;
@@ -60,6 +62,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.security.SecureRandom;
+import java.security.MessageDigest;
 import java.security.spec.KeySpec;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -86,6 +89,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private static final String DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/MAXStreng/LoginGate/main/update.json";
     private static final String LEGACY_PROXY_CHANNEL = "BungeeCord";
     private static final String MODERN_PROXY_CHANNEL = "bungeecord:main";
+    private static final String BRIDGE_HMAC_ALGORITHM = "HmacSHA256";
 
     private final SecureRandom random = new SecureRandom();
     private final Map<UUID, Session> sessions = new HashMap<>();
@@ -103,6 +107,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private FileConfiguration recordsConfig;
     private File securityLogFile;
     private File snapshotsFolder;
+    private File bridgeFolder;
 
     @Override
     public void onEnable() {
@@ -111,6 +116,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         setupLanguages();
         setupRecords();
         setupSnapshots();
+        setupBridgeVerification();
         loadRecords();
         setupWorlds();
         applyLoginWorldRules();
@@ -666,8 +672,8 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 getLogger().warning("multi-server proxy mode is enabled, but target-server is blank.");
             }
         }
-        if (isBackendRole() && !isDatabaseStorage()) {
-            getLogger().warning("multi-server server-role is backend while storage.type is yaml. Use a shared database for reliable cross-server verification.");
+        if (isBackendRole() && !isBridgeVerificationEnabled() && !isDatabaseStorage()) {
+            getLogger().warning("multi-server server-role is backend while storage.type is yaml. Enable bridge-verification or use a shared database for reliable cross-server verification.");
         }
         String storage = getConfig().getString("storage.type", "yaml");
         if (storage != null && !storage.equalsIgnoreCase("yaml") && !storage.equalsIgnoreCase("sqlite")
@@ -1249,6 +1255,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private void authenticateNow(Player player) {
         authenticated.add(player.getUniqueId());
         showAllPlayers(player);
+        issueBridgeTicket(player);
         transferToVerifiedDestination(player);
     }
 
@@ -1430,6 +1437,142 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         return true;
     }
 
+    private void issueBridgeTicket(Player player) {
+        if (!isBridgeVerificationEnabled() || !isLoginRole()) {
+            return;
+        }
+        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
+        if (!folder.exists() && !folder.mkdirs()) {
+            getLogger().warning("Could not create bridge verification folder: " + folder.getAbsolutePath());
+            return;
+        }
+
+        PlayerRecord record = getRecord(player);
+        long now = System.currentTimeMillis();
+        long expiresAt = now + Math.max(1L, getConfig().getLong("multi-server.backend-verified-window-seconds", 300L)) * 1000L;
+        String playerName = player.getName();
+        String playerUuid = player.getUniqueId().toString();
+        String generatedUuid = record == null || record.generatedUuid == null ? "" : record.generatedUuid;
+        String ip = getAddress(player);
+        String nonce = UUID.randomUUID().toString();
+        String payload = bridgePayload(playerName, playerUuid, generatedUuid, ip, now, expiresAt, nonce);
+        String signature = signBridgePayload(payload);
+        if (signature.isBlank()) {
+            return;
+        }
+
+        YamlConfiguration ticket = new YamlConfiguration();
+        ticket.set("name", playerName);
+        ticket.set("uuid", playerUuid);
+        ticket.set("generatedUuid", generatedUuid);
+        ticket.set("ip", ip);
+        ticket.set("verifiedAt", now);
+        ticket.set("expiresAt", expiresAt);
+        ticket.set("nonce", nonce);
+        ticket.set("signature", signature);
+
+        File target = getBridgeTicketFile(playerName, player.getUniqueId());
+        File temporary = new File(folder, target.getName() + ".tmp");
+        try {
+            ticket.save(temporary);
+            try {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicMoveFailed) {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException ex) {
+            getLogger().warning("Could not issue bridge verification ticket for " + playerName + ": " + ex.getMessage());
+        }
+    }
+
+    private boolean consumeBridgeTicket(Player player) {
+        File file = getBridgeTicketFile(player.getName(), player.getUniqueId());
+        if (!file.exists()) {
+            return false;
+        }
+
+        YamlConfiguration ticket = YamlConfiguration.loadConfiguration(file);
+        String name = ticket.getString("name", "");
+        String uuid = ticket.getString("uuid", "");
+        String generatedUuid = ticket.getString("generatedUuid", "");
+        String ip = ticket.getString("ip", "");
+        long verifiedAt = ticket.getLong("verifiedAt", 0L);
+        long expiresAt = ticket.getLong("expiresAt", 0L);
+        String nonce = ticket.getString("nonce", "");
+        String signature = ticket.getString("signature", "");
+
+        boolean valid = !name.isBlank()
+                && name.equalsIgnoreCase(player.getName())
+                && expiresAt >= System.currentTimeMillis()
+                && !nonce.isBlank()
+                && !signature.isBlank();
+        if (valid && getConfig().getBoolean("bridge-verification.require-uuid-match", true)) {
+            valid = uuid.equalsIgnoreCase(player.getUniqueId().toString());
+        }
+        if (valid && getConfig().getBoolean("bridge-verification.require-ip-match", true)) {
+            valid = ip.equals(getAddress(player));
+        }
+        if (valid) {
+            String payload = bridgePayload(name, uuid, generatedUuid, ip, verifiedAt, expiresAt, nonce);
+            valid = constantTimeEquals(signature, signBridgePayload(payload));
+        }
+
+        if (valid && getConfig().getBoolean("bridge-verification.consume-on-success", true)) {
+            deleteBridgeTicket(file);
+        } else if (!valid && expiresAt < System.currentTimeMillis()) {
+            deleteBridgeTicket(file);
+        }
+        return valid;
+    }
+
+    private File getBridgeTicketFile(String playerName, UUID playerUuid) {
+        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
+        String safeName = (playerName == null ? "unknown" : playerName.toLowerCase(Locale.ROOT))
+                .replaceAll("[^a-z0-9_.-]", "_");
+        return new File(folder, safeName + "-" + playerUuid + ".yml");
+    }
+
+    private String bridgePayload(String name, String uuid, String generatedUuid, String ip,
+                                 long verifiedAt, long expiresAt, String nonce) {
+        return name.toLowerCase(Locale.ROOT) + '\n'
+                + uuid.toLowerCase(Locale.ROOT) + '\n'
+                + generatedUuid + '\n'
+                + ip + '\n'
+                + verifiedAt + '\n'
+                + expiresAt + '\n'
+                + nonce;
+    }
+
+    private String signBridgePayload(String payload) {
+        String secret = getConfig().getString("bridge-verification.secret", "");
+        if (secret == null || secret.isBlank() || "change-me".equalsIgnoreCase(secret)) {
+            getLogger().warning("bridge-verification.secret is empty. Bridge verification is disabled until a shared secret is configured.");
+            return "";
+        }
+        try {
+            Mac mac = Mac.getInstance(BRIDGE_HMAC_ALGORITHM);
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), BRIDGE_HMAC_ALGORITHM));
+            return Base64.getEncoder().encodeToString(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ex) {
+            getLogger().warning("Could not sign bridge verification ticket: " + ex.getMessage());
+            return "";
+        }
+    }
+
+    private boolean constantTimeEquals(String first, String second) {
+        return MessageDigest.isEqual(
+                first == null ? new byte[0] : first.getBytes(StandardCharsets.UTF_8),
+                second == null ? new byte[0] : second.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void deleteBridgeTicket(File file) {
+        try {
+            Files.deleteIfExists(file.toPath());
+        } catch (IOException ex) {
+            getLogger().warning("Could not delete bridge verification ticket " + file.getName() + ": " + ex.getMessage());
+        }
+    }
+
     private void updateRememberedSession(Player player, PlayerRecord record) {
         if (record == null || !record.rememberLogin || !getConfig().getBoolean("remember-session.enabled", true)) {
             return;
@@ -1445,6 +1588,18 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private void handleBackendJoin(Player player) {
+        if (isBridgeVerificationEnabled()) {
+            if (consumeBridgeTicket(player)) {
+                authenticated.add(player.getUniqueId());
+                showAllPlayers(player);
+                player.sendMessage(message(player, "backend-verified", "&a已确认你的登录验证状态，欢迎进入主服务器。"));
+                return;
+            }
+            player.kickPlayer(color(getConfig().getString("bridge-verification.illegal-bypass-kick",
+                    "&c&l您目前的身份验证状态为：非法绕过身份验证！")));
+            return;
+        }
+
         PlayerRecord record = getRecord(player);
         long allowedMillis = Math.max(1L, getConfig().getLong("multi-server.backend-verified-window-seconds", 300L)) * 1000L;
         if (record != null && parseStoredMillis(record.lastVerifiedAt) + allowedMillis >= System.currentTimeMillis()) {
@@ -2063,6 +2218,44 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         if (!snapshotsFolder.exists() && !snapshotsFolder.mkdirs()) {
             getLogger().warning("Could not create LoginSnapshots folder.");
         }
+    }
+
+    private void setupBridgeVerification() {
+        if (!isBridgeVerificationEnabled()) {
+            return;
+        }
+        String secret = getConfig().getString("bridge-verification.secret", "");
+        if (secret == null || secret.isBlank() || "change-me".equalsIgnoreCase(secret)) {
+            getConfig().set("bridge-verification.secret", createBridgeSecret());
+            saveConfig();
+            getLogger().info("Generated bridge-verification.secret. Use the same value on every LoginGate server in this network.");
+        }
+        bridgeFolder = resolveBridgeFolder();
+        if (!bridgeFolder.exists() && !bridgeFolder.mkdirs()) {
+            getLogger().warning("Could not create bridge verification folder: " + bridgeFolder.getAbsolutePath());
+        }
+    }
+
+    private File resolveBridgeFolder() {
+        String directory = getConfig().getString("bridge-verification.directory", "LoginGateBridge");
+        File folder = new File(directory == null || directory.isBlank() ? "LoginGateBridge" : directory);
+        return folder.isAbsolute() ? folder : new File(getDataFolder(), directory);
+    }
+
+    private boolean isBridgeVerificationEnabled() {
+        return getConfig().getBoolean("bridge-verification.enabled", false)
+                && "file".equalsIgnoreCase(getConfig().getString("bridge-verification.type", "file"));
+    }
+
+    private boolean isLoginRole() {
+        String role = getConfig().getString("multi-server.server-role", "standalone");
+        return role != null && "login".equalsIgnoreCase(role);
+    }
+
+    private String createBridgeSecret() {
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     private void loadRecords() {
