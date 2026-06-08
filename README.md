@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.7.0`
+Current version: `v1.7.1`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
@@ -39,8 +39,10 @@ It sends players to a dedicated login world first, handles email registration, p
 - Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
 - Multi-server compatibility mode for transferring verified players through BungeeCord / Velocity plugin messages.
 - Local bridge tickets for login-server to backend-server verification, so backend servers only allow players verified by the login server.
+- In proxy networks, `/rememberlogin on|off` can sync through the local bridge, so players may enable remembered login on the backend server and have the login server recognize it next time.
 - Automatic configuration migration fills missing new default options while keeping existing values.
 - Player-controlled remembered login sessions through `/rememberlogin on|off`, disabled per player by default.
+- Re-running `/login` no longer resets failed password attempts, and login-lock countdown titles stay visible while refreshing.
 - Unique email binding, verification code attempt lockouts, and configurable password strength rules.
 - Security logs for registration, login, failures, lockouts, password changes, email rebinding, and suspicious logins.
 - Security notice emails for password changes, email rebinding, and suspicious logins.
@@ -180,6 +182,8 @@ bridge-verification:
 
 For two servers on the same machine, use `bridge-verification` with a shared local directory. For servers on different machines, use `storage.type: "mysql"` or `storage.type: "mariadb"` instead.
 
+Remembered-login sync in proxy mode depends on `bridge-verification`. When a player runs `/rememberlogin on` on a backend server, LoginGate writes the signed remembered-login state to the shared bridge directory. The login server reads and verifies that state the next time the player joins, then applies the remembered-login decision. The login and backend servers must use the exact same `bridge-verification.directory` and `bridge-verification.secret`.
+
 ## Admin Commands
 
 `/logingate` admin commands require `logingate.admin`. Player admins must complete LoginGate verification first; the console can run them directly.
@@ -225,6 +229,8 @@ Player records are stored in:
 `plugins/LoginGate/PlayerInfo/players.yml`
 
 Stored fields include email, game name, hashed password, registration time, last login time, IP, generated Pureblock UUID, language, persistent lock time, verification-code lock time, remembered-login preference, and last verified time.
+
+In local bridge multi-server mode, remembered-login state created from backend `/rememberlogin on|off` is stored in the shared `bridge-verification.directory` with filenames starting with `remember-`. These files are signed with `bridge-verification.secret`.
 
 The login environment warning is based on server-visible connection data such as IP address. LoginGate does not read hardware device identifiers.
 
