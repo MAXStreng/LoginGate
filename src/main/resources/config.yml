@@ -237,6 +237,10 @@ login-world-settings:
   reset-exp: true
   # 登录世界是否临时清空药水效果。
   clear-potion-effects: true
+  # 登录成功恢复玩家状态时是否允许恢复完整快照。关闭后任何登录后传送都不恢复背包、模式、经验、药水效果等快照内容。
+  restore-snapshot: true
+  # 当 post-login-location.mode 为 spawn 时是否恢复完整快照。默认 false，适合出生大厅/主城使用干净状态。
+  restore-snapshot-at-spawn: false
   # 登录世界是否临时重置血量、饥饿值、饱和度和燃烧状态。
   reset-health-food: true
   # 是否禁止登录世界刷新怪物。

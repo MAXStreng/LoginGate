@@ -1647,7 +1647,11 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             player.kickPlayer(message(player, "main-world-missing", "&c主世界不存在，无法完成登录。"));
             return false;
         }
-        restoreLoginSnapshot(player);
+        if (shouldRestoreSnapshotForVerifiedDestination(player)) {
+            restoreLoginSnapshot(player);
+        } else {
+            discardLoginSnapshot(player);
+        }
         player.teleport(destination);
         runPostLoginCommands(player);
         return true;
@@ -1721,6 +1725,22 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
         World world = Bukkit.getWorld(getConfig().getString("main-world", "world"));
         return world == null ? null : world.getSpawnLocation().add(0.5, 0, 0.5);
+    }
+
+    private boolean shouldRestoreSnapshotForVerifiedDestination(Player player) {
+        if (!getConfig().getBoolean("login-world-settings.restore-snapshot", true)) {
+            return false;
+        }
+        return isUsingLastLocationDestination(player)
+                || getConfig().getBoolean("login-world-settings.restore-snapshot-at-spawn", false);
+    }
+
+    private boolean isUsingLastLocationDestination(Player player) {
+        String mode = getConfig().getString("post-login-location.mode", "spawn");
+        return getConfig().getBoolean("post-login-location.enabled", true)
+                && mode != null
+                && (mode.equalsIgnoreCase("last-location") || mode.equalsIgnoreCase("last"))
+                && getLastLocation(getRecord(player)) != null;
     }
 
     private Location getLastLocation(PlayerRecord record) {
@@ -1903,6 +1923,11 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return;
         }
         snapshot.restore(player);
+        deleteLoginSnapshot(player.getUniqueId());
+    }
+
+    private void discardLoginSnapshot(Player player) {
+        loginSnapshots.remove(player.getUniqueId());
         deleteLoginSnapshot(player.getUniqueId());
     }
 
