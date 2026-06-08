@@ -227,6 +227,18 @@ login-world-generation:
 login-world-settings:
   # 兼容旧配置：为 true 时也会使用虚空生成器；新配置请优先使用 login-world-generation.type。
   void-world: true
+  # 是否隔离登录世界玩家状态。开启后进入登录世界会临时清空物品、经验、效果并使用登录专用游戏模式，登录成功或退出时恢复原状态。
+  isolate-player-state: true
+  # 登录世界内临时使用的游戏模式，可选 SURVIVAL、CREATIVE、ADVENTURE、SPECTATOR。
+  game-mode: "ADVENTURE"
+  # 登录世界是否临时清空背包、装备和副手。
+  clear-inventory: true
+  # 登录世界是否临时清空经验等级。
+  reset-exp: true
+  # 登录世界是否临时清空药水效果。
+  clear-potion-effects: true
+  # 登录世界是否临时重置血量、饥饿值、饱和度和燃烧状态。
+  reset-health-food: true
   # 是否禁止登录世界刷新怪物。
   disable-monster-spawn: true
   # 是否禁止登录世界天气更替。

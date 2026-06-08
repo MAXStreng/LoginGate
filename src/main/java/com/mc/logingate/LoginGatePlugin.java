@@ -27,7 +27,9 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.generator.ChunkGenerator;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import javax.crypto.SecretKeyFactory;
@@ -62,7 +64,9 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -91,6 +95,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private final Set<UUID> authenticated = new HashSet<>();
     private final Set<UUID> transferring = new HashSet<>();
     private final Map<UUID, Long> verificationHoldUntil = new HashMap<>();
+    private final Map<UUID, PlayerSnapshot> loginSnapshots = new HashMap<>();
 
     private File recordsFile;
     private FileConfiguration recordsConfig;
@@ -124,6 +129,9 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            restoreLoginSnapshot(player);
+        }
         Bukkit.getMessenger().unregisterOutgoingPluginChannel(this);
         saveRecords();
     }
@@ -256,6 +264,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
         PlayerRecord record = getRecord(player);
         rememberLastLocation(player, record);
+        captureLoginSnapshot(player);
         teleportToLogin(player);
         prepareLoginPlayer(player);
         if (isLocked(player)) {
@@ -279,6 +288,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+        restoreLoginSnapshot(player);
         if (isVerified(player) && !transferring.contains(player.getUniqueId())) {
             rememberLastLocation(player, getRecord(player));
             saveRecords();
@@ -329,10 +339,14 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     public void onChangedWorld(PlayerChangedWorldEvent event) {
         Player player = event.getPlayer();
         if (isInLoginWorld(player)) {
-            prepareLoginPlayer(player);
+            if (!isVerified(player)) {
+                captureLoginSnapshot(player);
+                prepareLoginPlayer(player);
+            }
             return;
         }
         if (!isVerified(player)) {
+            restoreLoginSnapshot(player);
             player.kickPlayer(message(player, "unverified-kick", "&c未完成 Pureblock 身份验证，无法进入主世界。"));
         } else {
             showAllPlayers(player);
@@ -1599,9 +1613,11 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private boolean teleportToMain(Player player) {
         Location destination = getVerifiedDestination(player);
         if (destination == null) {
+            restoreLoginSnapshot(player);
             player.kickPlayer(message(player, "main-world-missing", "&c主世界不存在，无法完成登录。"));
             return false;
         }
+        restoreLoginSnapshot(player);
         player.teleport(destination);
         runPostLoginCommands(player);
         return true;
@@ -1643,6 +1659,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
              DataOutputStream output = new DataOutputStream(buffer)) {
             output.writeUTF("Connect");
             output.writeUTF(targetServer);
+            restoreLoginSnapshot(player);
             player.sendPluginMessage(this, channel, buffer.toByteArray());
             player.sendMessage(message(player, "proxy-transfer-started",
                     "&a身份验证通过，正在连接至 &d%server%&a。",
@@ -1785,13 +1802,69 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private void prepareLoginPlayer(Player player) {
-        player.setGameMode(GameMode.ADVENTURE);
-        player.setAllowFlight(false);
-        player.setFlying(false);
-        player.setHealth(Math.min(player.getHealth(), player.getMaxHealth()));
+        if (getConfig().getBoolean("login-world-settings.isolate-player-state", true)) {
+            player.setGameMode(getLoginGameMode());
+            player.setAllowFlight(false);
+            player.setFlying(false);
+            if (getConfig().getBoolean("login-world-settings.clear-inventory", true)) {
+                player.getInventory().clear();
+                player.getInventory().setArmorContents(new ItemStack[4]);
+                player.getInventory().setExtraContents(new ItemStack[player.getInventory().getExtraContents().length]);
+                player.getInventory().setHeldItemSlot(0);
+            }
+            if (getConfig().getBoolean("login-world-settings.reset-exp", true)) {
+                player.setExp(0F);
+                player.setLevel(0);
+                player.setTotalExperience(0);
+            }
+            if (getConfig().getBoolean("login-world-settings.clear-potion-effects", true)) {
+                for (PotionEffect effect : player.getActivePotionEffects()) {
+                    player.removePotionEffect(effect.getType());
+                }
+            }
+            if (getConfig().getBoolean("login-world-settings.reset-health-food", true)) {
+                player.setHealth(player.getMaxHealth());
+                player.setFoodLevel(20);
+                player.setSaturation(20F);
+                player.setExhaustion(0F);
+                player.setFireTicks(0);
+            } else {
+                player.setHealth(Math.min(player.getHealth(), player.getMaxHealth()));
+            }
+            player.updateInventory();
+        } else {
+            player.setGameMode(GameMode.ADVENTURE);
+            player.setAllowFlight(false);
+            player.setFlying(false);
+            player.setHealth(Math.min(player.getHealth(), player.getMaxHealth()));
+        }
         if (getConfig().getBoolean("login-world-settings.hide-other-players", true)) {
             hideOtherPlayers(player);
         }
+    }
+
+    private GameMode getLoginGameMode() {
+        String configured = getConfig().getString("login-world-settings.game-mode", "ADVENTURE");
+        try {
+            return GameMode.valueOf((configured == null ? "ADVENTURE" : configured).trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return GameMode.ADVENTURE;
+        }
+    }
+
+    private void captureLoginSnapshot(Player player) {
+        if (!getConfig().getBoolean("login-world-settings.isolate-player-state", true)) {
+            return;
+        }
+        loginSnapshots.computeIfAbsent(player.getUniqueId(), ignored -> new PlayerSnapshot(player));
+    }
+
+    private void restoreLoginSnapshot(Player player) {
+        PlayerSnapshot snapshot = loginSnapshots.remove(player.getUniqueId());
+        if (snapshot == null) {
+            return;
+        }
+        snapshot.restore(player);
     }
 
     private void hideOtherPlayers(Player player) {
@@ -2360,6 +2433,77 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
         private Session(SessionMode mode) {
             this.mode = mode;
+        }
+    }
+
+    private static final class PlayerSnapshot {
+        private final GameMode gameMode;
+        private final boolean allowFlight;
+        private final boolean flying;
+        private final ItemStack[] storageContents;
+        private final ItemStack[] armorContents;
+        private final ItemStack[] extraContents;
+        private final int heldSlot;
+        private final float exp;
+        private final int level;
+        private final int totalExperience;
+        private final double health;
+        private final int foodLevel;
+        private final float saturation;
+        private final float exhaustion;
+        private final int fireTicks;
+        private final Collection<PotionEffect> potionEffects;
+
+        private PlayerSnapshot(Player player) {
+            this.gameMode = player.getGameMode();
+            this.allowFlight = player.getAllowFlight();
+            this.flying = player.isFlying();
+            this.storageContents = cloneItems(player.getInventory().getStorageContents());
+            this.armorContents = cloneItems(player.getInventory().getArmorContents());
+            this.extraContents = cloneItems(player.getInventory().getExtraContents());
+            this.heldSlot = player.getInventory().getHeldItemSlot();
+            this.exp = player.getExp();
+            this.level = player.getLevel();
+            this.totalExperience = player.getTotalExperience();
+            this.health = player.getHealth();
+            this.foodLevel = player.getFoodLevel();
+            this.saturation = player.getSaturation();
+            this.exhaustion = player.getExhaustion();
+            this.fireTicks = player.getFireTicks();
+            this.potionEffects = new ArrayList<>(player.getActivePotionEffects());
+        }
+
+        private void restore(Player player) {
+            player.setGameMode(gameMode);
+            player.setAllowFlight(allowFlight);
+            player.setFlying(allowFlight && flying);
+            player.getInventory().setStorageContents(cloneItems(storageContents));
+            player.getInventory().setArmorContents(cloneItems(armorContents));
+            player.getInventory().setExtraContents(cloneItems(extraContents));
+            player.getInventory().setHeldItemSlot(heldSlot);
+            player.setTotalExperience(totalExperience);
+            player.setLevel(level);
+            player.setExp(exp);
+            player.setHealth(Math.max(1D, Math.min(health, player.getMaxHealth())));
+            player.setFoodLevel(foodLevel);
+            player.setSaturation(saturation);
+            player.setExhaustion(exhaustion);
+            player.setFireTicks(fireTicks);
+            for (PotionEffect effect : player.getActivePotionEffects()) {
+                player.removePotionEffect(effect.getType());
+            }
+            for (PotionEffect effect : potionEffects) {
+                player.addPotionEffect(effect);
+            }
+            player.updateInventory();
+        }
+
+        private static ItemStack[] cloneItems(ItemStack[] items) {
+            ItemStack[] cloned = new ItemStack[items.length];
+            for (int i = 0; i < items.length; i++) {
+                cloned[i] = items[i] == null ? null : items[i].clone();
+            }
+            return cloned;
         }
     }
 

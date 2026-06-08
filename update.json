@@ -1,5 +1,5 @@
 {
-  "version": "v1.6.0",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.0",
-  "body": "新增登录后传送位置策略，可选择主世界出生点或玩家上次离开位置；新增登录后命令执行；新增 message-toggles 普通消息逐条开关；新增 email-verification.enabled，关闭邮箱验证后注册、改密、改绑可跳过验证码步骤。"
+  "version": "v1.6.1",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.1",
+  "body": "修复登录世界会继承主世界游戏模式和物品状态的问题。新增登录世界玩家状态隔离：进入登录大厅时临时清空背包、装备、副手、经验、药水效果并使用登录专用模式，登录成功、退出或异常离开时恢复原主世界状态。"
 }

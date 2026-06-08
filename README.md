@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.6.0`
+Current version: `v1.6.1`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
@@ -23,6 +23,7 @@ It sends players to a dedicated login world first, handles email registration, p
 - Optional email verification. When disabled, registration, password changes, and email rebinding skip the code step.
 - Post-login destination can be the main-world spawn or the player's last saved logout location.
 - Configurable commands can run after a verified player is teleported to the local main world.
+- Login-world player state isolation keeps main-world game mode, inventory, armor, offhand, experience, and potion effects out of the login lobby.
 - Passwords stored as PBKDF2 hashes with random salts.
 - Persistent login lock after too many failed password attempts.
 - Per-email verification code cooldown.
@@ -71,6 +72,7 @@ Important entries:
 
 - `loginworld`: fixed login world name. Leave it empty to let the plugin create `login_<type>`.
 - `login-world-generation.type`: login world terrain type, one of `void`, `flat`, or `normal`.
+- `login-world-settings.isolate-player-state`: isolates player state in the login world so the lobby does not expose or overwrite main-world inventory and game mode.
 - `main-world`: destination world after successful verification.
 - `post-login-location`: post-login destination strategy, either spawn or last saved location.
 - `post-login-commands`: commands to run after a player is teleported to the local main world.
