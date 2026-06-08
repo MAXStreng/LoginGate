@@ -1,5 +1,5 @@
 {
-  "version": "v1.6.1",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.1",
-  "body": "修复登录世界会继承主世界游戏模式和物品状态的问题。新增登录世界玩家状态隔离：进入登录大厅时临时清空背包、装备、副手、经验、药水效果并使用登录专用模式，登录成功、退出或异常离开时恢复原主世界状态。"
+  "version": "v1.6.2",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.2",
+  "body": "优化启动更新检查提示。检测到新版本时，控制台更新提示会以橙黄色显示，并使用可点击链接打开 GitHub 下载页面。"
 }

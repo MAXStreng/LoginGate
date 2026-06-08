@@ -31,6 +31,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitRunnable;
+import net.md_5.bungee.api.chat.ClickEvent;
+import net.md_5.bungee.api.chat.TextComponent;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
@@ -458,10 +460,19 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
             UpdateInfo updateInfo = fetchLatestRelease();
             Bukkit.getScheduler().runTask(this, () -> {
-                startupInfo(buildUpdateMessage(updateInfo));
+                startupUpdateInfo(updateInfo);
                 startupInfo("大功告成！目前生锈的门还能撑一段时间......");
             });
         });
+    }
+
+    private void startupUpdateInfo(UpdateInfo updateInfo) {
+        String message = buildUpdateMessage(updateInfo);
+        if (isNewVersion(updateInfo)) {
+            startupClickableUpdateInfo(message, updateInfo.url == null || updateInfo.url.isBlank() ? GITHUB_REPOSITORY_URL : updateInfo.url);
+            return;
+        }
+        startupInfo(message);
     }
 
     private String buildUpdateMessage(UpdateInfo updateInfo) {
@@ -478,6 +489,14 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         return "当前版本" + current + "，最新版本" + latest + "，检测到新版本" + latest
                 + "，更新内容为" + summarizeReleaseBody(updateInfo.body)
                 + "，前往" + updateInfo.url + "仓库链接下载最新版本";
+    }
+
+    private boolean isNewVersion(UpdateInfo updateInfo) {
+        if (updateInfo == null || updateInfo.version == null || updateInfo.version.isBlank()) {
+            return false;
+        }
+        return !normalizeVersion(withVersionPrefix(getDescription().getVersion()))
+                .equals(normalizeVersion(withVersionPrefix(updateInfo.version)));
     }
 
     private UpdateInfo fetchLatestRelease() {
@@ -619,6 +638,14 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     private void startupInfo(String message) {
         Bukkit.getConsoleSender().sendMessage(ChatColor.GREEN + message);
+    }
+
+    private void startupClickableUpdateInfo(String message, String url) {
+        TextComponent component = new TextComponent(message);
+        component.setColor(net.md_5.bungee.api.ChatColor.GOLD);
+        component.setUnderlined(true);
+        component.setClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, url));
+        Bukkit.getConsoleSender().spigot().sendMessage(component);
     }
 
     private void validateStartupConfig() {
