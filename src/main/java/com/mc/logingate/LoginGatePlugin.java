@@ -274,6 +274,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
         restoreLoginSnapshot(player);
         PlayerRecord record = getRecord(player);
+        importBridgeRememberState(player, record);
         rememberLastLocation(player, record);
         captureLoginSnapshot(player);
         teleportToLogin(player);
@@ -697,7 +698,11 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return;
         }
 
-        sessions.put(player.getUniqueId(), new Session(SessionMode.LOGIN_PASSWORD));
+        Session session = sessions.get(player.getUniqueId());
+        if (session == null || session.mode != SessionMode.LOGIN_PASSWORD) {
+            session = new Session(SessionMode.LOGIN_PASSWORD);
+            sessions.put(player.getUniqueId(), session);
+        }
         player.sendMessage(message(player, "input-password", "&d&lPureblock &8| &7请在聊天栏输入 &e登录密码&7，该内容不会广播。"));
         showGatePrompt(player);
     }
@@ -793,30 +798,46 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             player.sendMessage(message(player, "remember-login-disabled", "&c服务器未启用记住登录功能。"));
             return;
         }
-        PlayerRecord record = getRecord(player);
-        if (record == null) {
-            player.sendMessage(message(player, "not-registered", "&c你还没有注册。请先使用 &e/register&c。"));
-            return;
-        }
         if (args.length != 1 || (!"on".equalsIgnoreCase(args[0]) && !"off".equalsIgnoreCase(args[0]))) {
             player.sendMessage(message(player, "remember-login-usage", "&e用法：/rememberlogin on 或 /rememberlogin off"));
             return;
         }
 
+        PlayerRecord record = getRecord(player);
+        if (record == null && !isBridgeVerificationEnabled()) {
+            player.sendMessage(message(player, "not-registered", "&c你还没有注册。请先使用 &e/register&c。"));
+            return;
+        }
+
         boolean enabled = "on".equalsIgnoreCase(args[0]);
-        record.rememberLogin = enabled;
+        long rememberUntil = enabled
+                ? System.currentTimeMillis() + Math.max(1L, getConfig().getLong("remember-session.expire-minutes", 10L)) * 60_000L
+                : 0L;
+        String rememberIp = enabled ? getAddress(player) : "";
+
+        if (record != null) {
+            record.rememberLogin = enabled;
+        }
         if (enabled) {
-            updateRememberedSession(player, record);
+            if (record != null) {
+                record.rememberIp = rememberIp;
+                record.rememberUntil = rememberUntil;
+            }
             player.sendMessage(message(player, "remember-login-enabled", "&a已开启记住登录。有效期：&e%minutes% &a分钟。",
                     "%minutes%", String.valueOf(getConfig().getInt("remember-session.expire-minutes", 10))));
             logSecurity("remember-enabled", player, "ip=" + getAddress(player));
         } else {
-            record.rememberIp = "";
-            record.rememberUntil = 0L;
+            if (record != null) {
+                record.rememberIp = "";
+                record.rememberUntil = 0L;
+            }
             player.sendMessage(message(player, "remember-login-disabled-player", "&a已关闭记住登录。下次进入仍需输入密码。"));
             logSecurity("remember-disabled", player, "");
         }
-        saveRecords();
+        publishBridgeRememberState(player, enabled, rememberIp, rememberUntil);
+        if (record != null) {
+            saveRecords();
+        }
     }
 
     private boolean handleAdminCommand(CommandSender sender, String[] args) {
@@ -1279,7 +1300,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         long seconds = getLockedSeconds(player);
         String subtitle = rawMessage(player, "locked-subtitle", "&7请等待 &e%seconds% &7秒",
                 "%seconds%", String.valueOf(seconds));
-        sendTitleIfEnabled(player, message(player, "locked-title", "&c&l验证锁定"), subtitle, 0, 30, 0);
+        sendTitleIfEnabled(player, message(player, "locked-title", "&c&l验证锁定"), subtitle, 0, 50, 0);
     }
 
     private void showGatePrompt(Player player) {
@@ -1438,7 +1459,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private void issueBridgeTicket(Player player) {
-        if (!isBridgeVerificationEnabled() || !isLoginRole()) {
+        if (!isBridgeVerificationEnabled() || isBackendRole()) {
             return;
         }
         File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
@@ -1571,6 +1592,104 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         } catch (IOException ex) {
             getLogger().warning("Could not delete bridge verification ticket " + file.getName() + ": " + ex.getMessage());
         }
+    }
+
+    private void publishBridgeRememberState(Player player, boolean rememberLogin, String rememberIp, long rememberUntil) {
+        if (!isBridgeVerificationEnabled()) {
+            return;
+        }
+        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
+        if (!folder.exists() && !folder.mkdirs()) {
+            getLogger().warning("Could not create bridge verification folder: " + folder.getAbsolutePath());
+            return;
+        }
+
+        long updatedAt = System.currentTimeMillis();
+        String payload = bridgeRememberPayload(player.getName(), player.getUniqueId().toString(), rememberLogin, rememberIp, rememberUntil, updatedAt);
+        String signature = signBridgePayload(payload);
+        if (signature.isBlank()) {
+            return;
+        }
+
+        YamlConfiguration state = new YamlConfiguration();
+        state.set("name", player.getName());
+        state.set("uuid", player.getUniqueId().toString());
+        state.set("rememberLogin", rememberLogin);
+        state.set("rememberIp", rememberIp);
+        state.set("rememberUntil", rememberUntil);
+        state.set("updatedAt", updatedAt);
+        state.set("signature", signature);
+
+        File target = getBridgeRememberFile(player.getName(), player.getUniqueId());
+        File temporary = new File(folder, target.getName() + ".tmp");
+        try {
+            state.save(temporary);
+            try {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicMoveFailed) {
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException ex) {
+            getLogger().warning("Could not publish remembered login state for " + player.getName() + ": " + ex.getMessage());
+        }
+    }
+
+    private void importBridgeRememberState(Player player, PlayerRecord record) {
+        if (record == null || !isBridgeVerificationEnabled() || isBackendRole()) {
+            return;
+        }
+        File file = getBridgeRememberFile(player.getName(), player.getUniqueId());
+        if (!file.exists()) {
+            return;
+        }
+
+        YamlConfiguration state = YamlConfiguration.loadConfiguration(file);
+        String name = state.getString("name", "");
+        String uuid = state.getString("uuid", "");
+        boolean rememberLogin = state.getBoolean("rememberLogin", false);
+        String rememberIp = state.getString("rememberIp", "");
+        long rememberUntil = state.getLong("rememberUntil", 0L);
+        long updatedAt = state.getLong("updatedAt", 0L);
+        String signature = state.getString("signature", "");
+        String payload = bridgeRememberPayload(name, uuid, rememberLogin, rememberIp, rememberUntil, updatedAt);
+
+        boolean valid = !name.isBlank()
+                && name.equalsIgnoreCase(player.getName())
+                && uuid.equalsIgnoreCase(player.getUniqueId().toString())
+                && updatedAt > 0L
+                && !signature.isBlank()
+                && constantTimeEquals(signature, signBridgePayload(payload));
+        if (!valid) {
+            getLogger().warning("Ignored invalid remembered login bridge state for " + player.getName() + ".");
+            return;
+        }
+
+        if (rememberLogin && rememberUntil <= System.currentTimeMillis()) {
+            record.rememberLogin = false;
+            record.rememberIp = "";
+            record.rememberUntil = 0L;
+        } else {
+            record.rememberLogin = rememberLogin;
+            record.rememberIp = rememberLogin ? rememberIp : "";
+            record.rememberUntil = rememberLogin ? rememberUntil : 0L;
+        }
+        saveRecords();
+    }
+
+    private File getBridgeRememberFile(String playerName, UUID playerUuid) {
+        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
+        String safeName = (playerName == null ? "unknown" : playerName.toLowerCase(Locale.ROOT))
+                .replaceAll("[^a-z0-9_.-]", "_");
+        return new File(folder, "remember-" + safeName + "-" + playerUuid + ".yml");
+    }
+
+    private String bridgeRememberPayload(String name, String uuid, boolean rememberLogin, String rememberIp, long rememberUntil, long updatedAt) {
+        return name.toLowerCase(Locale.ROOT) + '\n'
+                + uuid.toLowerCase(Locale.ROOT) + '\n'
+                + rememberLogin + '\n'
+                + (rememberIp == null ? "" : rememberIp) + '\n'
+                + rememberUntil + '\n'
+                + updatedAt;
     }
 
     private void updateRememberedSession(Player player, PlayerRecord record) {

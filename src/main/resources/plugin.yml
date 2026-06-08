@@ -1,5 +1,5 @@
 name: LoginGate
-version: 1.7.0
+version: 1.7.1
 main: com.mc.logingate.LoginGatePlugin
 api-version: '1.20'
 author: Codex
