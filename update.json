@@ -1,5 +1,5 @@
 {
-  "version": "v1.6.3",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.3",
-  "body": "修复登录世界状态隔离恢复时，药水效果等级可能被降为 I 的问题。恢复药水效果时现在会强制覆盖同类效果，并优化经验等级恢复顺序。"
+  "version": "v1.6.4",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.6.4",
+  "body": "新增登录世界玩家状态快照落盘保护。进入登录大厅前的背包、装备、游戏模式、经验和药水效果会写入 LoginSnapshots 文件夹，登录成功恢复后自动删除；若服务器更新、重载或崩溃导致残留快照，玩家下次进服会优先恢复。"
 }

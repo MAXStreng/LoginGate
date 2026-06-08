@@ -102,6 +102,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private File recordsFile;
     private FileConfiguration recordsConfig;
     private File securityLogFile;
+    private File snapshotsFolder;
 
     @Override
     public void onEnable() {
@@ -109,6 +110,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         migrateConfigDefaults();
         setupLanguages();
         setupRecords();
+        setupSnapshots();
         loadRecords();
         setupWorlds();
         applyLoginWorldRules();
@@ -264,6 +266,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return;
         }
 
+        restoreLoginSnapshot(player);
         PlayerRecord record = getRecord(player);
         rememberLastLocation(player, record);
         captureLoginSnapshot(player);
@@ -1883,15 +1886,62 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         if (!getConfig().getBoolean("login-world-settings.isolate-player-state", true)) {
             return;
         }
-        loginSnapshots.computeIfAbsent(player.getUniqueId(), ignored -> new PlayerSnapshot(player));
+        if (loginSnapshots.containsKey(player.getUniqueId()) || getSnapshotFile(player.getUniqueId()).exists()) {
+            return;
+        }
+        PlayerSnapshot snapshot = new PlayerSnapshot(player);
+        loginSnapshots.put(player.getUniqueId(), snapshot);
+        saveLoginSnapshot(player.getUniqueId(), snapshot);
     }
 
     private void restoreLoginSnapshot(Player player) {
         PlayerSnapshot snapshot = loginSnapshots.remove(player.getUniqueId());
         if (snapshot == null) {
+            snapshot = loadLoginSnapshot(player.getUniqueId());
+        }
+        if (snapshot == null) {
             return;
         }
         snapshot.restore(player);
+        deleteLoginSnapshot(player.getUniqueId());
+    }
+
+    private File getSnapshotFile(UUID uuid) {
+        return new File(snapshotsFolder, uuid + ".yml");
+    }
+
+    private void saveLoginSnapshot(UUID uuid, PlayerSnapshot snapshot) {
+        if (snapshotsFolder == null) {
+            return;
+        }
+        File file = getSnapshotFile(uuid);
+        FileConfiguration config = new YamlConfiguration();
+        snapshot.save(config);
+        try {
+            config.save(file);
+        } catch (IOException ex) {
+            getLogger().warning("Could not save login snapshot for " + uuid + ": " + ex.getMessage());
+        }
+    }
+
+    private PlayerSnapshot loadLoginSnapshot(UUID uuid) {
+        File file = getSnapshotFile(uuid);
+        if (!file.exists()) {
+            return null;
+        }
+        try {
+            return PlayerSnapshot.load(YamlConfiguration.loadConfiguration(file));
+        } catch (RuntimeException ex) {
+            getLogger().warning("Could not load login snapshot for " + uuid + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    private void deleteLoginSnapshot(UUID uuid) {
+        File file = getSnapshotFile(uuid);
+        if (file.exists() && !file.delete()) {
+            getLogger().warning("Could not delete restored login snapshot: " + file.getName());
+        }
     }
 
     private void hideOtherPlayers(Player player) {
@@ -1981,6 +2031,13 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             getLogger().warning("Could not create logs folder.");
         }
         securityLogFile = new File(logsFolder, "security.log");
+    }
+
+    private void setupSnapshots() {
+        snapshotsFolder = new File(getDataFolder(), "LoginSnapshots");
+        if (!snapshotsFolder.exists() && !snapshotsFolder.mkdirs()) {
+            getLogger().warning("Could not create LoginSnapshots folder.");
+        }
     }
 
     private void loadRecords() {
@@ -2534,6 +2591,97 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 cloned[i] = items[i] == null ? null : items[i].clone();
             }
             return cloned;
+        }
+
+        private void save(FileConfiguration config) {
+            config.set("gameMode", gameMode.name());
+            config.set("allowFlight", allowFlight);
+            config.set("flying", flying);
+            config.set("storageContents", java.util.Arrays.asList(storageContents));
+            config.set("armorContents", java.util.Arrays.asList(armorContents));
+            config.set("extraContents", java.util.Arrays.asList(extraContents));
+            config.set("heldSlot", heldSlot);
+            config.set("exp", (double) exp);
+            config.set("level", level);
+            config.set("totalExperience", totalExperience);
+            config.set("health", health);
+            config.set("foodLevel", foodLevel);
+            config.set("saturation", (double) saturation);
+            config.set("exhaustion", (double) exhaustion);
+            config.set("fireTicks", fireTicks);
+            config.set("potionEffects", new ArrayList<>(potionEffects));
+        }
+
+        private static PlayerSnapshot load(FileConfiguration config) {
+            return new PlayerSnapshot(
+                    parseGameMode(config.getString("gameMode", "SURVIVAL")),
+                    config.getBoolean("allowFlight", false),
+                    config.getBoolean("flying", false),
+                    readItemArray(config, "storageContents"),
+                    readItemArray(config, "armorContents"),
+                    readItemArray(config, "extraContents"),
+                    config.getInt("heldSlot", 0),
+                    (float) config.getDouble("exp", 0D),
+                    config.getInt("level", 0),
+                    config.getInt("totalExperience", 0),
+                    config.getDouble("health", 20D),
+                    config.getInt("foodLevel", 20),
+                    (float) config.getDouble("saturation", 5D),
+                    (float) config.getDouble("exhaustion", 0D),
+                    config.getInt("fireTicks", 0),
+                    readPotionEffects(config));
+        }
+
+        private PlayerSnapshot(GameMode gameMode, boolean allowFlight, boolean flying,
+                               ItemStack[] storageContents, ItemStack[] armorContents, ItemStack[] extraContents,
+                               int heldSlot, float exp, int level, int totalExperience, double health,
+                               int foodLevel, float saturation, float exhaustion, int fireTicks,
+                               Collection<PotionEffect> potionEffects) {
+            this.gameMode = gameMode;
+            this.allowFlight = allowFlight;
+            this.flying = flying;
+            this.storageContents = cloneItems(storageContents);
+            this.armorContents = cloneItems(armorContents);
+            this.extraContents = cloneItems(extraContents);
+            this.heldSlot = heldSlot;
+            this.exp = exp;
+            this.level = level;
+            this.totalExperience = totalExperience;
+            this.health = health;
+            this.foodLevel = foodLevel;
+            this.saturation = saturation;
+            this.exhaustion = exhaustion;
+            this.fireTicks = fireTicks;
+            this.potionEffects = new ArrayList<>(potionEffects);
+        }
+
+        private static GameMode parseGameMode(String value) {
+            try {
+                return GameMode.valueOf((value == null ? "SURVIVAL" : value).toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                return GameMode.SURVIVAL;
+            }
+        }
+
+        private static ItemStack[] readItemArray(FileConfiguration config, String path) {
+            java.util.List<?> list = config.getList(path, java.util.List.of());
+            ItemStack[] items = new ItemStack[list.size()];
+            for (int i = 0; i < list.size(); i++) {
+                Object value = list.get(i);
+                items[i] = value instanceof ItemStack item ? item.clone() : null;
+            }
+            return items;
+        }
+
+        private static Collection<PotionEffect> readPotionEffects(FileConfiguration config) {
+            java.util.List<?> list = config.getList("potionEffects", java.util.List.of());
+            Collection<PotionEffect> effects = new ArrayList<>();
+            for (Object value : list) {
+                if (value instanceof PotionEffect effect) {
+                    effects.add(effect);
+                }
+            }
+            return effects;
         }
     }
 
