@@ -2508,9 +2508,12 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             player.getInventory().setArmorContents(cloneItems(armorContents));
             player.getInventory().setExtraContents(cloneItems(extraContents));
             player.getInventory().setHeldItemSlot(heldSlot);
-            player.setTotalExperience(totalExperience);
+            player.setExp(0F);
+            player.setLevel(0);
+            player.setTotalExperience(0);
             player.setLevel(level);
             player.setExp(exp);
+            player.setTotalExperience(totalExperience);
             player.setHealth(Math.max(1D, Math.min(health, player.getMaxHealth())));
             player.setFoodLevel(foodLevel);
             player.setSaturation(saturation);
@@ -2520,7 +2523,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 player.removePotionEffect(effect.getType());
             }
             for (PotionEffect effect : potionEffects) {
-                player.addPotionEffect(effect);
+                player.addPotionEffect(effect, true);
             }
             player.updateInventory();
         }

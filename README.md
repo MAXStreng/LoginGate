@@ -1,6 +1,6 @@
 # LoginGate
 
-Current version: `v1.6.2`
+Current version: `v1.6.3`
 
 LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
 
