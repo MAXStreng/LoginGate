@@ -1,155 +1,183 @@
 # LoginGate
 
-Current version: `v1.7.1`
+Current version: `v1.8.0`
 
-LoginGate is a Mohist/Bukkit authentication lobby plugin for Minecraft 1.20.1.
+LoginGate is a Bukkit/Paper authentication lobby plugin. It sends players to a dedicated login world, handles registration and password verification, then releases verified players to the real server world or to another backend server.
 
-It sends players to a dedicated login world first, handles email registration, password login, password reset, and only then transfers verified players to the main world.
+Version `1.8.0` adds a no-proxy Paper deployment mode:
+
+- Login runs as the authentication server.
+- MC runs as the lobby/main backend server.
+- Velocity/BungeeCord is not required.
+- After successful verification, LoginGate issues a signed bridge ticket and uses Paper native transfer.
+- MC validates the bridge ticket during pre-login.
+- Direct MC connections without a valid ticket are rejected with:
+
+```text
+未完成身份验证，请先登录！
+```
 
 ## Compatibility
 
-- Recommended server: Mohist `1.20.1`
-- Bukkit API: `1.20`
-- Java: `17` or newer
-- Proxy compatibility: BungeeCord / Velocity, through the multi-server transfer mode
-- Other Bukkit / Spigot / Paper-derived servers are not the primary test target and may work, but full compatibility is not guaranteed.
+- Tested legacy target: Mohist `1.20.1`.
+- Migration test target: Paper `26.1.2`.
+- Java: `17` or newer for legacy builds; Paper `26.1.2` testing used Java `25`.
+- Bukkit/Paper API: compiled with the existing Bukkit-compatible API and uses reflection for Paper native transfer.
+- Proxy mode is still available for BungeeCord/Velocity networks.
+- Paper native transfer requires a Minecraft/Paper version that supports `Player#transfer(String, int)`.
 
-## Features
+## Main Features
 
 - Dedicated login world with configurable terrain: `void`, `flat`, or `normal`.
-- Automatic login world name when `loginworld` is empty: `login_void`, `login_flat`, or `login_normal`.
-- Email verification for `/register` and `/changepwd`.
-- `/bindemail` lets verified players rebind their email address through email verification.
-- Optional email verification. When disabled, registration, password changes, and email rebinding skip the code step.
-- Post-login destination can be the main-world spawn or the player's last saved logout location.
-- Configurable commands can run after a verified player is teleported to the local main world.
-- Login-world player state isolation keeps main-world game mode, inventory, armor, offhand, experience, and potion effects out of the login lobby.
-- Login-world state snapshots are temporarily saved to disk, so player state can still be restored after server updates, reloads, or crashes.
-- Full snapshot restoration can follow the post-login destination: last-location restores inventory, game mode, experience, and effects by default, while spawn does not by default.
-- Passwords stored as PBKDF2 hashes with random salts.
-- Persistent login lock after too many failed password attempts.
-- Per-email verification code cooldown.
-- Separate verification failure page for wrong or expired email codes.
-- Last login time and IP tracking, with a warning when the login environment changes.
-- Persistent title/subtitle prompts while the player is not verified.
-- Configurable join, post-register, and post-login custom messages.
-- Fine-grained state messages for first enter, logging in, verification success, locked, and email bind success.
-- Normal message keys can be enabled or disabled individually.
-- New player guide messages after successful registration.
-- Startup update check through a public `update.json` manifest, without requiring a GitHub API token.
-- Multi-server compatibility mode for transferring verified players through BungeeCord / Velocity plugin messages.
-- Local bridge tickets for login-server to backend-server verification, so backend servers only allow players verified by the login server.
-- In proxy networks, `/rememberlogin on|off` can sync through the local bridge, so players may enable remembered login on the backend server and have the login server recognize it next time.
-- Automatic configuration migration fills missing new default options while keeping existing values.
-- Player-controlled remembered login sessions through `/rememberlogin on|off`, disabled per player by default.
-- Re-running `/login` no longer resets failed password attempts, and login-lock countdown titles stay visible while refreshing.
-- Unique email binding, verification code attempt lockouts, and configurable password strength rules.
-- Security logs for registration, login, failures, lockouts, password changes, email rebinding, and suspicious logins.
-- Security notice emails for password changes, email rebinding, and suspicious logins.
-- `/logingate` admin commands; player admins must complete LoginGate verification before using them.
-- YAML, SQLite, and MySQL/MariaDB player data storage.
-- Backend servers can validate recently verified players for proxy-based networks.
+- Email registration through `/register`.
+- Password login through `/login`.
+- Email-based password reset through `/changepwd`.
+- Email rebinding through `/bindemail`.
+- Optional email verification.
+- PBKDF2 password hashes with random salts.
+- Login attempt lockouts and verification-code lockouts.
+- Unique email binding.
+- Configurable password strength rules.
+- Last login time and IP tracking.
+- Suspicious login warnings.
+- Remembered login sessions through `/rememberlogin on|off`.
+- Login-world player isolation for inventory, armor, offhand, experience, potion effects, health, hunger, and game mode.
+- Snapshot restoration after login, reload, or crash recovery.
+- Configurable join, post-register, and post-login messages.
 - Language files with `/lang zh` and `/lang en`.
-- Login world controls: no monsters, no weather cycle, locked time, invulnerability, freeze, and player hiding.
+- YAML, SQLite, and MySQL/MariaDB player-data storage.
+- Security logs and optional security notice emails.
+- Admin command group: `/logingate`.
+- Automatic default config migration while keeping existing values.
 
 ## Commands
 
-- `/register`: start email registration.
-- `/login`: enter the account password and continue to the main world.
-- `/changepwd`: reset the password through email verification.
-- `/bindemail [email]`: rebind the account email after login. If no email is provided, the plugin asks for it in chat.
-- `/rememberlogin on`: enable short remembered login for yourself after login.
-- `/rememberlogin off`: disable remembered login.
-- `/logingate reload`: reload config and language files.
-- `/logingate info <player>`: show a player account summary.
-- `/logingate unlock <player>`: clear login and verification-code locks.
-- `/logingate resetpwd <player> <newPassword>`: reset a player password as an admin.
-- `/lang zh`: switch LoginGate text to Chinese.
-- `/lang en`: switch LoginGate text to English.
+Player commands:
 
-## Configuration
-
-Edit:
-
-`plugins/LoginGate/config.yml`
-
-Important entries:
-
-- `loginworld`: fixed login world name. Leave it empty to let the plugin create `login_<type>`.
-- `login-world-generation.type`: login world terrain type, one of `void`, `flat`, or `normal`.
-- `login-world-settings.isolate-player-state`: isolates player state in the login world so the lobby does not expose or overwrite main-world inventory and game mode.
-- `login-world-settings.restore-snapshot-at-spawn`: whether the full player snapshot should be restored when sending players to the main-world spawn, disabled by default.
-- `main-world`: destination world after successful verification.
-- `post-login-location`: post-login destination strategy, either spawn or last saved location.
-- `post-login-commands`: commands to run after a player is teleported to the local main world.
-- `multi-server`: multi-server compatibility settings. Disabled by default; when enabled, verified players can be sent to a proxy target server.
-- `bridge-verification`: one-time shared verification tickets between the login server and backend servers. Both sides must use the same directory and `secret`.
-- `remember-session`: player-controlled short remembered login settings.
-- `verification-code`: maximum wrong code attempts and lock duration.
-- `email-unique`: one-email-per-account policy.
-- `password-strength`: configurable password complexity requirements.
-- `security-log`: security log switch.
-- `security-mail`: security notice mail switch.
-- `storage`: player data storage, one of `yaml`, `sqlite`, `mysql`, or `mariadb`.
-- `default-language`: default language, `zh` or `en`.
-- `message-source`: normal text source. Use `lang` for language files first or `config` for config.yml first.
-- `message-toggles`: per-key switches for normal messages. Keys not listed use `default`.
-- `email-code-cooldown-seconds`: cooldown for requesting a new email code for the same email address.
-- `email-verification.enabled`: whether email verification codes are required.
-- `state-messages`: separate configurable message groups for first enter, logging in, verification success, locked, and email bind success.
-- `custom-messages`: configurable messages shown on join, after registration, and after login.
-- `update-check.enabled`: whether to check for updates during plugin startup.
-- `update-check.manifest-url`: public update manifest URL. By default it reads `update.json` from this repository.
-- `smtp`: mail server settings.
-
-## Message Customization
-
-Normal messages can be maintained in two ways:
-
-- `message-source: "lang"`: default mode. LoginGate reads `plugins/LoginGate/lang/zh.yml` or `plugins/LoginGate/lang/en.yml` first, which keeps `/lang zh` and `/lang en` useful.
-- `message-source: "config"`: single-file mode. LoginGate reads `messages` and `mail` from `config.yml` first, useful for servers that only want to edit one file.
-
-`state-messages` and `custom-messages` are server-specific message groups and remain in `config.yml`. Existing legacy `messages` and `mail` entries in older configs are kept compatible.
-
-Each normal message key can be toggled in `message-toggles`, for example:
-
-```yaml
-message-toggles:
-  default: true
-  register-help: false
-  transfer-subtitle: false
+```text
+/register
+/login
+/changepwd
+/bindemail [email]
+/rememberlogin on
+/rememberlogin off
+/lang zh
+/lang en
 ```
 
-`state-messages` and `custom-messages` use their own group-level `enabled` switch.
+Admin commands:
 
-## Post-Login Behavior
+```text
+/logingate reload
+/logingate info <player>
+/logingate unlock <player>
+/logingate resetpwd <player> <newPassword>
+```
 
-Local post-login teleporting is controlled by `post-login-location`:
+Permission:
+
+```text
+logingate.admin
+```
+
+Player admins must complete LoginGate verification before using admin commands. Console commands are allowed directly.
+
+## Single-Server Mode
+
+Use this when LoginGate and the main world are on the same server.
 
 ```yaml
+multi-server:
+  server-role: "standalone"
+  enabled: false
+  transfer-mode: "local"
+```
+
+Important local settings:
+
+```yaml
+main-world: world
+
 post-login-location:
   enabled: true
-  mode: "last-location"
+  mode: last-location
   save-last-location: true
 ```
 
-`mode: "spawn"` sends players to the `main-world` spawn. `mode: "last-location"` sends them to their last saved logout location. In proxy transfer mode, the login server only connects players to the target server.
+`mode: spawn` sends players to the main-world spawn.
+`mode: last-location` sends players to their last saved logout location.
 
-Commands can run after local main-world teleport:
+## Paper Native Transfer Mode
+
+Use this when you want no Velocity/BungeeCord:
+
+- `Login` server: authentication only.
+- `MC` server: lobby/main server.
+- Both servers run Paper.
+- Both servers share the same `bridge-verification.secret`.
+- Both servers use the same bridge storage backend.
+- MC must not have BungeeCord/Velocity forwarding enabled.
+
+Login server:
 
 ```yaml
-post-login-commands:
+multi-server:
+  server-role: "login"
   enabled: true
-  executor: "console"
-  commands:
-    - "say %player% passed LoginGate verification"
+  transfer-mode: "native-transfer"
+  native-transfer:
+    host: "127.0.0.1"
+    port: 25567
+  fallback-to-local-world: false
+
+bridge-verification:
+  enabled: true
+  type: "file"
+  directory: "C:/Users/ohhhh/Desktop/Server/MigrationTest/LoginGateBridge"
+  secret: "same value on Login and MC"
 ```
 
-Supported placeholders: `%player%`, `%server%`, `%uuid%`, `%time%`.
+MC backend server:
 
-## Multi-Server Mode
+```yaml
+multi-server:
+  server-role: "backend"
+  enabled: true
+  transfer-mode: "local"
+  backend-verified-window-seconds: 300
 
-LoginGate still uses local world teleport by default. For BungeeCord / Velocity setups, enable proxy transfer in `config.yml`:
+bridge-verification:
+  enabled: true
+  type: "file"
+  directory: "C:/Users/ohhhh/Desktop/Server/MigrationTest/LoginGateBridge"
+  secret: "same value on Login and MC"
+  require-ip-match: true
+  require-uuid-match: true
+  consume-on-success: true
+  illegal-bypass-kick: "&c未完成身份验证，请先登录！"
+```
+
+Paper/Spigot proxy leftovers must be disabled when no proxy is used:
+
+```yaml
+# spigot.yml
+settings:
+  bungeecord: false
+```
+
+```yaml
+# config/paper-global.yml
+proxies:
+  velocity:
+    enabled: false
+  proxy-protocol: false
+```
+
+Also firewall or bind MC so public players cannot bypass Login.
+
+## Proxy Transfer Mode
+
+Use this for BungeeCord/Velocity networks:
 
 ```yaml
 multi-server:
@@ -160,82 +188,143 @@ multi-server:
   plugin-message-channel: "BungeeCord"
 ```
 
-`target-server` must match the server name configured in the proxy. Velocity setups can change `plugin-message-channel` to `bungeecord:main` when needed.
+Velocity networks can use `bungeecord:main` if the proxy is configured for that channel.
 
-Backend servers can use:
+## Bridge Verification Storage
+
+Bridge verification signs short-lived HMAC tickets on the login server and verifies them on the backend server.
+
+Supported modes:
 
 ```yaml
-multi-server:
-  server-role: "backend"
-  backend-verified-window-seconds: 300
+bridge-verification:
+  enabled: true
+  type: "file" # file/local or database/db
+```
 
+### File / Local Mode
+
+Best for Login and MC on the same machine.
+
+```yaml
 bridge-verification:
   enabled: true
   type: "file"
-  directory: "C:/Users/ohhhh/Desktop/LoginGateBridge"
-  secret: "same value on login and backend servers"
-  require-ip-match: true
-  require-uuid-match: true
-  consume-on-success: true
-  illegal-bypass-kick: "&c&l您目前的身份验证状态为：非法绕过身份验证！"
+  directory: "C:/Path/To/LoginGateBridge"
+  secret: "same value on every server"
 ```
 
-For two servers on the same machine, use `bridge-verification` with a shared local directory. For servers on different machines, use `storage.type: "mysql"` or `storage.type: "mariadb"` instead.
+`directory` can be an absolute path. Login and MC must use the same path.
 
-Remembered-login sync in proxy mode depends on `bridge-verification`. When a player runs `/rememberlogin on` on a backend server, LoginGate writes the signed remembered-login state to the shared bridge directory. The login server reads and verifies that state the next time the player joins, then applies the remembered-login decision. The login and backend servers must use the exact same `bridge-verification.directory` and `bridge-verification.secret`.
+### Database Mode
 
-## Admin Commands
+Best when Login and MC are on different machines or when you prefer shared database state.
 
-`/logingate` admin commands require `logingate.admin`. Player admins must complete LoginGate verification first; the console can run them directly.
+```yaml
+bridge-verification:
+  enabled: true
+  type: "database"
+  database:
+    ticket-table: "logingate_bridge_tickets"
+    remember-table: "logingate_bridge_remember"
+  secret: "same value on every server"
+```
+
+Database mode reuses the existing `storage` settings:
+
+```yaml
+storage:
+  type: "sqlite" # yaml, sqlite, mysql, mariadb
+  sqlite:
+    file: PlayerInfo/players.db
+  mysql:
+    host: localhost
+    port: 3306
+    database: logingate
+    username: root
+    password: ""
+    jdbc-url: ""
+```
+
+If `storage.type` is `yaml`, database bridge mode still works by using `storage.sqlite.file` for the bridge tables. Player records can remain YAML.
+
+## Remembered Login Bridge
+
+`/rememberlogin on|off` can synchronize across Login and backend servers through the same bridge backend.
+
+- In file mode, remembered-login state is written to the bridge directory.
+- In database mode, remembered-login state is written to `bridge-verification.database.remember-table`.
+- The same `secret` must be used on every server.
+
+## Storage
+
+Player records support:
+
+```yaml
+storage:
+  type: "yaml" # yaml, sqlite, mysql, mariadb
+```
+
+YAML stores records under:
 
 ```text
-/logingate reload
-/logingate info <player>
-/logingate unlock <player>
-/logingate resetpwd <player> <newPassword>
+plugins/LoginGate/PlayerInfo/players.yml
 ```
 
-## Configuration Migration
-
-On startup, LoginGate checks `config.yml` and `lang/*.yml`, then fills any missing options that exist in the bundled defaults.
-
-- Existing values are kept and are not overwritten by defaults.
-- Player data in `PlayerInfo/players.yml` is not part of configuration migration and will not be cleared.
-- A backup is created before migration, such as `config.yml.backup-timestamp`.
-- Old custom options removed from newer defaults are not actively deleted, so custom server-side entries are not lost.
-
-## Language Files
-
-Language files are copied to:
-
-`plugins/LoginGate/lang/zh.yml`
-
-`plugins/LoginGate/lang/en.yml`
-
-Players can switch language with `/lang zh` or `/lang en`. Registered players keep their chosen language in `PlayerInfo/players.yml`.
-
-When `message-source` is `lang`, edit regular titles, subtitles, chat prompts, and mail subjects in the language files. When it is `config`, `config.yml` entries under `messages` and `mail` take priority.
+SQLite/MySQL/MariaDB store records in `logingate_players`.
 
 ## SMTP
 
-Set `smtp.enabled: true` and fill the SMTP host, port, username, password, sender address, and sender name.
+Enable SMTP for email codes:
 
-Many email providers require an app-specific SMTP authorization code instead of the normal mailbox password.
+```yaml
+smtp:
+  enabled: true
+  host: smtp.example.com
+  port: 465
+  ssl: true
+  starttls: false
+  username: user@example.com
+  password: "app-specific-password"
+  from: user@example.com
+  from-name: LoginGate
+```
 
-## Player Data
+Many email providers require an SMTP authorization code or app password instead of the normal mailbox password.
 
-Player records are stored in:
+## Configuration Migration
 
-`plugins/LoginGate/PlayerInfo/players.yml`
+On startup, LoginGate fills missing default options in:
 
-Stored fields include email, game name, hashed password, registration time, last login time, IP, generated Pureblock UUID, language, persistent lock time, verification-code lock time, remembered-login preference, and last verified time.
+```text
+plugins/LoginGate/config.yml
+plugins/LoginGate/lang/zh.yml
+plugins/LoginGate/lang/en.yml
+```
 
-In local bridge multi-server mode, remembered-login state created from backend `/rememberlogin on|off` is stored in the shared `bridge-verification.directory` with filenames starting with `remember-`. These files are signed with `bridge-verification.secret`.
+Existing values are kept. A backup such as `config.yml.backup-<timestamp>` is created before migration.
 
-The login environment warning is based on server-visible connection data such as IP address. LoginGate does not read hardware device identifiers.
+## Paper 26.1.2 Migration Notes
 
-Temporary login-world state snapshots are stored in:
+- Test on cloned server folders first.
+- Do not upgrade production worlds without backups.
+- Paper 26.1 world upgrades should be treated as one-way for practical rollback planning.
+- Upgrade Login and MC together.
+- Use a Minecraft client matching the target server version.
+- Disable old proxy forwarding settings if Velocity/BungeeCord is removed.
+- Keep MC private or firewalled so players cannot bypass Login.
+- Validate registration, login, remembered login, native transfer, direct-MC rejection, bans, economy, daily rewards, AFK, holograms, MOTD, leaderboards, protection rules, and common commands before production cutover.
 
-`plugins/LoginGate/LoginSnapshots/<player-uuid>.yml`
+## Build
 
-The snapshot is deleted after the player logs in or their state is restored. If a server crash leaves a snapshot behind, LoginGate restores it first the next time that player joins.
+The current local test jar is:
+
+```text
+build/LoginGate-1.8.0.jar
+```
+
+The project currently uses a local javac argument file:
+
+```text
+build/javac-1.8.0.args
+```

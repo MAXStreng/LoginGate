@@ -124,10 +124,15 @@ multi-server:
   server-role: "standalone"
   # 多服兼容模式。关闭时使用本地 main-world 传送；开启后通过代理插件消息转发到目标子服。
   enabled: false
-  # 放行模式。local=本地世界传送，proxy=通过 BungeeCord/Velocity 代理转服。
+  # 放行模式。local=本地世界传送，proxy=通过 BungeeCord/Velocity 代理转服，native-transfer=使用 Minecraft 原生 transfer 转服。
   transfer-mode: "local"
   # 代理端配置的目标子服名称，开启 proxy 模式后会连接到这里。
   target-server: "Pureblock"
+  native-transfer:
+    # 原生 transfer 目标服务器地址。客户端必须支持 transfer，且目标服版本应与登录服兼容。
+    host: "127.0.0.1"
+    # 原生 transfer 目标服务器端口。
+    port: 25567
   # 插件消息通道。BungeeCord 常用 BungeeCord；Velocity 可按代理设置改为 bungeecord:main。
   plugin-message-channel: "BungeeCord"
   # 代理转服失败时是否回退到本地 main-world。
@@ -138,10 +143,16 @@ multi-server:
 bridge-verification:
   # 是否启用登录服到主服的本地桥接验证。用于 Login 子服签发通行证、MC 主服校验通行证。
   enabled: false
-  # 桥接方式。当前支持 file，本机多服推荐使用 file。
+  # 桥接方式。file/local=本地文件票据；database/db=数据库票据。
+  # database 模式复用下方 storage.sqlite/mysql 配置；storage.type 为 yaml 时默认使用 storage.sqlite.file。
   type: "file"
-  # 本地桥接目录。登录服和主服必须填写同一个目录。
+  # 本地桥接目录，仅 file/local 模式使用。登录服和主服必须填写同一个目录，可写绝对路径。
   directory: "LoginGateBridge"
+  database:
+    # 数据库模式使用的票据表名。
+    ticket-table: "logingate_bridge_tickets"
+    # 数据库模式使用的记住登录桥接状态表名。
+    remember-table: "logingate_bridge_remember"
   # HMAC 签名密钥。首次启用且留空时会自动生成；登录服和主服必须完全一致。
   secret: ""
   # 主服校验时是否要求 IP 与登录服签发通行证时一致。

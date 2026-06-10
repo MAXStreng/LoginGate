@@ -1,5 +1,5 @@
 {
-  "version": "v1.7.1",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.7.0",
-  "body": "新增 Velocity/BungeeCord 双服验证桥接。登录服验证成功后会签发带 HMAC 签名的一次性本地通行证，主服校验玩家名、UUID、IP、过期时间和签名后才放行；非法绕过登录服的玩家会被主服踢出。"
+  "version": "v1.8.0",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.8.0",
+  "body": "新增 Paper 原生 transfer 模式。登录服验证成功后签发 HMAC 桥接票据并 transfer 到主服；主服在 pre-login 阶段校验票据，未完成身份验证的直连玩家会被拒绝。桥接票据支持 file/local 本地文件模式和 database/db 数据库模式，本地模式可自定义票据目录，数据库模式复用 storage.sqlite/mysql 配置。"
 }

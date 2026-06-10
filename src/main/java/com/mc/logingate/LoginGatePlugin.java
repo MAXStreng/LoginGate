@@ -21,6 +21,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -79,6 +80,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 public final class LoginGatePlugin extends JavaPlugin implements Listener {
@@ -100,6 +102,7 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private final Map<UUID, Long> verificationLocks = new HashMap<>();
     private final Set<UUID> authenticated = new HashSet<>();
     private final Set<UUID> transferring = new HashSet<>();
+    private final Set<UUID> backendPreVerified = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Long> verificationHoldUntil = new HashMap<>();
     private final Map<UUID, PlayerSnapshot> loginSnapshots = new HashMap<>();
 
@@ -259,6 +262,23 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return true;
         }
         return true;
+    }
+
+    @EventHandler
+    public void onAsyncPreLogin(AsyncPlayerPreLoginEvent event) {
+        if (!isBackendRole() || !isBridgeVerificationEnabled()) {
+            return;
+        }
+
+        String ip = event.getAddress() == null ? "" : event.getAddress().getHostAddress();
+        if (consumeBridgeTicket(event.getName(), event.getUniqueId(), ip)) {
+            backendPreVerified.add(event.getUniqueId());
+            return;
+        }
+
+        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                color(getConfig().getString("bridge-verification.illegal-bypass-kick",
+                        "&c未完成身份验证，请先登录！")));
     }
 
     @EventHandler
@@ -675,6 +695,14 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         }
         if (isBackendRole() && !isBridgeVerificationEnabled() && !isDatabaseStorage()) {
             getLogger().warning("multi-server server-role is backend while storage.type is yaml. Enable bridge-verification or use a shared database for reliable cross-server verification.");
+        }
+        if (getConfig().getBoolean("bridge-verification.enabled", false)) {
+            String bridgeType = getConfig().getString("bridge-verification.type", "file");
+            if (!isFileBridgeVerification() && !isDatabaseBridgeVerification()) {
+                getLogger().warning("Unknown bridge-verification.type: " + bridgeType + ". Supported values: file, local, database, db.");
+            } else if (isDatabaseBridgeVerification() && !isDatabaseStorage()) {
+                getLogger().info("bridge-verification.type is database while storage.type is yaml; bridge tickets will use storage.sqlite.file.");
+            }
         }
         String storage = getConfig().getString("storage.type", "yaml");
         if (storage != null && !storage.equalsIgnoreCase("yaml") && !storage.equalsIgnoreCase("sqlite")
@@ -1462,11 +1490,6 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         if (!isBridgeVerificationEnabled() || isBackendRole()) {
             return;
         }
-        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
-        if (!folder.exists() && !folder.mkdirs()) {
-            getLogger().warning("Could not create bridge verification folder: " + folder.getAbsolutePath());
-            return;
-        }
 
         PlayerRecord record = getRecord(player);
         long now = System.currentTimeMillis();
@@ -1482,17 +1505,33 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             return;
         }
 
+        saveBridgeTicket(playerName, player.getUniqueId(), generatedUuid, ip, now, expiresAt, nonce, signature);
+    }
+
+    private void saveBridgeTicket(String playerName, UUID playerUuid, String generatedUuid, String ip,
+                                  long verifiedAt, long expiresAt, String nonce, String signature) {
+        if (isDatabaseBridgeVerification()) {
+            saveDatabaseBridgeTicket(playerName, playerUuid, generatedUuid, ip, verifiedAt, expiresAt, nonce, signature);
+            return;
+        }
+
+        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
+        if (!folder.exists() && !folder.mkdirs()) {
+            getLogger().warning("Could not create bridge verification folder: " + folder.getAbsolutePath());
+            return;
+        }
+
         YamlConfiguration ticket = new YamlConfiguration();
         ticket.set("name", playerName);
-        ticket.set("uuid", playerUuid);
+        ticket.set("uuid", playerUuid.toString());
         ticket.set("generatedUuid", generatedUuid);
         ticket.set("ip", ip);
-        ticket.set("verifiedAt", now);
+        ticket.set("verifiedAt", verifiedAt);
         ticket.set("expiresAt", expiresAt);
         ticket.set("nonce", nonce);
         ticket.set("signature", signature);
 
-        File target = getBridgeTicketFile(playerName, player.getUniqueId());
+        File target = getBridgeTicketFile(playerName, playerUuid);
         File temporary = new File(folder, target.getName() + ".tmp");
         try {
             ticket.save(temporary);
@@ -1507,7 +1546,15 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private boolean consumeBridgeTicket(Player player) {
-        File file = getBridgeTicketFile(player.getName(), player.getUniqueId());
+        return consumeBridgeTicket(player.getName(), player.getUniqueId(), getAddress(player));
+    }
+
+    private boolean consumeBridgeTicket(String playerName, UUID playerUuid, String playerIp) {
+        if (isDatabaseBridgeVerification()) {
+            return consumeDatabaseBridgeTicket(playerName, playerUuid, playerIp);
+        }
+
+        File file = getBridgeTicketFile(playerName, playerUuid);
         if (!file.exists()) {
             return false;
         }
@@ -1523,15 +1570,15 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         String signature = ticket.getString("signature", "");
 
         boolean valid = !name.isBlank()
-                && name.equalsIgnoreCase(player.getName())
+                && name.equalsIgnoreCase(playerName)
                 && expiresAt >= System.currentTimeMillis()
                 && !nonce.isBlank()
                 && !signature.isBlank();
         if (valid && getConfig().getBoolean("bridge-verification.require-uuid-match", true)) {
-            valid = uuid.equalsIgnoreCase(player.getUniqueId().toString());
+            valid = uuid.equalsIgnoreCase(playerUuid.toString());
         }
         if (valid && getConfig().getBoolean("bridge-verification.require-ip-match", true)) {
-            valid = ip.equals(getAddress(player));
+            valid = ip.equals(playerIp == null ? "" : playerIp);
         }
         if (valid) {
             String payload = bridgePayload(name, uuid, generatedUuid, ip, verifiedAt, expiresAt, nonce);
@@ -1548,9 +1595,13 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     private File getBridgeTicketFile(String playerName, UUID playerUuid) {
         File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
+        return new File(folder, getBridgeTicketKey(playerName, playerUuid) + ".yml");
+    }
+
+    private String getBridgeTicketKey(String playerName, UUID playerUuid) {
         String safeName = (playerName == null ? "unknown" : playerName.toLowerCase(Locale.ROOT))
                 .replaceAll("[^a-z0-9_.-]", "_");
-        return new File(folder, safeName + "-" + playerUuid + ".yml");
+        return safeName + "-" + playerUuid;
     }
 
     private String bridgePayload(String name, String uuid, String generatedUuid, String ip,
@@ -1594,13 +1645,132 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         }
     }
 
+    private void saveDatabaseBridgeTicket(String playerName, UUID playerUuid, String generatedUuid, String ip,
+                                          long verifiedAt, long expiresAt, String nonce, String signature) {
+        String key = getBridgeTicketKey(playerName, playerUuid);
+        String table = getBridgeTicketTable();
+        try (Connection connection = openStorageConnection()) {
+            ensureBridgeTicketSchema(connection);
+            deleteDatabaseBridgeTicket(connection, table, key);
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO " + table + " (ticket_key,name,uuid,generated_uuid,ip,verified_at,expires_at,nonce,signature) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?)")) {
+                statement.setString(1, key);
+                statement.setString(2, playerName);
+                statement.setString(3, playerUuid.toString());
+                statement.setString(4, generatedUuid);
+                statement.setString(5, ip);
+                statement.setLong(6, verifiedAt);
+                statement.setLong(7, expiresAt);
+                statement.setString(8, nonce);
+                statement.setString(9, signature);
+                statement.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            getLogger().warning("Could not issue database bridge verification ticket for " + playerName + ": " + ex.getMessage());
+        }
+    }
+
+    private boolean consumeDatabaseBridgeTicket(String playerName, UUID playerUuid, String playerIp) {
+        String key = getBridgeTicketKey(playerName, playerUuid);
+        String table = getBridgeTicketTable();
+        try (Connection connection = openStorageConnection()) {
+            ensureBridgeTicketSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT name,uuid,generated_uuid,ip,verified_at,expires_at,nonce,signature FROM " + table + " WHERE ticket_key=?")) {
+                statement.setString(1, key);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (!result.next()) {
+                        return false;
+                    }
+
+                    String name = result.getString("name");
+                    String uuid = result.getString("uuid");
+                    String generatedUuid = result.getString("generated_uuid");
+                    String ip = result.getString("ip");
+                    long verifiedAt = result.getLong("verified_at");
+                    long expiresAt = result.getLong("expires_at");
+                    String nonce = result.getString("nonce");
+                    String signature = result.getString("signature");
+
+                    boolean valid = !name.isBlank()
+                            && name.equalsIgnoreCase(playerName)
+                            && expiresAt >= System.currentTimeMillis()
+                            && nonce != null && !nonce.isBlank()
+                            && signature != null && !signature.isBlank();
+                    if (valid && getConfig().getBoolean("bridge-verification.require-uuid-match", true)) {
+                        valid = uuid != null && uuid.equalsIgnoreCase(playerUuid.toString());
+                    }
+                    if (valid && getConfig().getBoolean("bridge-verification.require-ip-match", true)) {
+                        valid = ip != null && ip.equals(playerIp == null ? "" : playerIp);
+                    }
+                    if (valid) {
+                        String payload = bridgePayload(name, uuid == null ? "" : uuid, generatedUuid == null ? "" : generatedUuid,
+                                ip == null ? "" : ip, verifiedAt, expiresAt, nonce);
+                        valid = constantTimeEquals(signature, signBridgePayload(payload));
+                    }
+
+                    if (valid && getConfig().getBoolean("bridge-verification.consume-on-success", true)) {
+                        deleteDatabaseBridgeTicket(connection, table, key);
+                    } else if (!valid && expiresAt < System.currentTimeMillis()) {
+                        deleteDatabaseBridgeTicket(connection, table, key);
+                    }
+                    return valid;
+                }
+            }
+        } catch (SQLException ex) {
+            getLogger().warning("Could not consume database bridge verification ticket for " + playerName + ": " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private void ensureBridgeTicketSchema(Connection connection) throws SQLException {
+        String table = getBridgeTicketTable();
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + table + " ("
+                    + "ticket_key VARCHAR(160) PRIMARY KEY,"
+                    + "name VARCHAR(64),"
+                    + "uuid VARCHAR(36),"
+                    + "generated_uuid TEXT,"
+                    + "ip VARCHAR(64),"
+                    + "verified_at BIGINT,"
+                    + "expires_at BIGINT,"
+                    + "nonce VARCHAR(64),"
+                    + "signature TEXT"
+                    + ")");
+        }
+        try (PreparedStatement cleanup = connection.prepareStatement("DELETE FROM " + table + " WHERE expires_at < ?")) {
+            cleanup.setLong(1, System.currentTimeMillis());
+            cleanup.executeUpdate();
+        }
+    }
+
+    private void deleteDatabaseBridgeTicket(Connection connection, String table, String key) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE ticket_key=?")) {
+            statement.setString(1, key);
+            statement.executeUpdate();
+        }
+    }
+
+    private String getBridgeTicketTable() {
+        return sanitizeSqlIdentifier(getConfig().getString("bridge-verification.database.ticket-table", "logingate_bridge_tickets"),
+                "logingate_bridge_tickets");
+    }
+
+    private String getBridgeRememberTable() {
+        return sanitizeSqlIdentifier(getConfig().getString("bridge-verification.database.remember-table", "logingate_bridge_remember"),
+                "logingate_bridge_remember");
+    }
+
+    private String sanitizeSqlIdentifier(String configured, String fallback) {
+        if (configured == null || configured.isBlank()) {
+            return fallback;
+        }
+        return configured.matches("[A-Za-z0-9_]+") ? configured : fallback;
+    }
+
     private void publishBridgeRememberState(Player player, boolean rememberLogin, String rememberIp, long rememberUntil) {
         if (!isBridgeVerificationEnabled()) {
-            return;
-        }
-        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
-        if (!folder.exists() && !folder.mkdirs()) {
-            getLogger().warning("Could not create bridge verification folder: " + folder.getAbsolutePath());
             return;
         }
 
@@ -1608,6 +1778,16 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         String payload = bridgeRememberPayload(player.getName(), player.getUniqueId().toString(), rememberLogin, rememberIp, rememberUntil, updatedAt);
         String signature = signBridgePayload(payload);
         if (signature.isBlank()) {
+            return;
+        }
+        if (isDatabaseBridgeVerification()) {
+            saveDatabaseBridgeRememberState(player.getName(), player.getUniqueId(), rememberLogin, rememberIp, rememberUntil, updatedAt, signature);
+            return;
+        }
+
+        File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
+        if (!folder.exists() && !folder.mkdirs()) {
+            getLogger().warning("Could not create bridge verification folder: " + folder.getAbsolutePath());
             return;
         }
 
@@ -1638,6 +1818,11 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         if (record == null || !isBridgeVerificationEnabled() || isBackendRole()) {
             return;
         }
+        if (isDatabaseBridgeVerification()) {
+            importDatabaseBridgeRememberState(player, record);
+            return;
+        }
+
         File file = getBridgeRememberFile(player.getName(), player.getUniqueId());
         if (!file.exists()) {
             return;
@@ -1676,6 +1861,104 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
         saveRecords();
     }
 
+    private void saveDatabaseBridgeRememberState(String playerName, UUID playerUuid, boolean rememberLogin,
+                                                 String rememberIp, long rememberUntil, long updatedAt, String signature) {
+        String key = getBridgeTicketKey(playerName, playerUuid);
+        String table = getBridgeRememberTable();
+        try (Connection connection = openStorageConnection()) {
+            ensureBridgeRememberSchema(connection);
+            deleteDatabaseBridgeRememberState(connection, table, key);
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO " + table + " (remember_key,name,uuid,remember_login,remember_ip,remember_until,updated_at,signature) "
+                            + "VALUES (?,?,?,?,?,?,?,?)")) {
+                statement.setString(1, key);
+                statement.setString(2, playerName);
+                statement.setString(3, playerUuid.toString());
+                statement.setBoolean(4, rememberLogin);
+                statement.setString(5, rememberIp == null ? "" : rememberIp);
+                statement.setLong(6, rememberUntil);
+                statement.setLong(7, updatedAt);
+                statement.setString(8, signature);
+                statement.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            getLogger().warning("Could not publish database remembered login state for " + playerName + ": " + ex.getMessage());
+        }
+    }
+
+    private void importDatabaseBridgeRememberState(Player player, PlayerRecord record) {
+        String key = getBridgeTicketKey(player.getName(), player.getUniqueId());
+        String table = getBridgeRememberTable();
+        try (Connection connection = openStorageConnection()) {
+            ensureBridgeRememberSchema(connection);
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT name,uuid,remember_login,remember_ip,remember_until,updated_at,signature FROM " + table + " WHERE remember_key=?")) {
+                statement.setString(1, key);
+                try (ResultSet result = statement.executeQuery()) {
+                    if (!result.next()) {
+                        return;
+                    }
+
+                    String name = result.getString("name");
+                    String uuid = result.getString("uuid");
+                    boolean rememberLogin = result.getBoolean("remember_login");
+                    String rememberIp = result.getString("remember_ip");
+                    long rememberUntil = result.getLong("remember_until");
+                    long updatedAt = result.getLong("updated_at");
+                    String signature = result.getString("signature");
+                    String payload = bridgeRememberPayload(name, uuid, rememberLogin, rememberIp, rememberUntil, updatedAt);
+
+                    boolean valid = name != null && !name.isBlank()
+                            && name.equalsIgnoreCase(player.getName())
+                            && uuid != null && uuid.equalsIgnoreCase(player.getUniqueId().toString())
+                            && updatedAt > 0L
+                            && signature != null && !signature.isBlank()
+                            && constantTimeEquals(signature, signBridgePayload(payload));
+                    if (!valid) {
+                        getLogger().warning("Ignored invalid database remembered login bridge state for " + player.getName() + ".");
+                        return;
+                    }
+
+                    if (rememberLogin && rememberUntil <= System.currentTimeMillis()) {
+                        record.rememberLogin = false;
+                        record.rememberIp = "";
+                        record.rememberUntil = 0L;
+                    } else {
+                        record.rememberLogin = rememberLogin;
+                        record.rememberIp = rememberLogin ? rememberIp : "";
+                        record.rememberUntil = rememberLogin ? rememberUntil : 0L;
+                    }
+                    saveRecords();
+                }
+            }
+        } catch (SQLException ex) {
+            getLogger().warning("Could not import database remembered login state for " + player.getName() + ": " + ex.getMessage());
+        }
+    }
+
+    private void ensureBridgeRememberSchema(Connection connection) throws SQLException {
+        String table = getBridgeRememberTable();
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + table + " ("
+                    + "remember_key VARCHAR(160) PRIMARY KEY,"
+                    + "name VARCHAR(64),"
+                    + "uuid VARCHAR(36),"
+                    + "remember_login BOOLEAN,"
+                    + "remember_ip VARCHAR(64),"
+                    + "remember_until BIGINT,"
+                    + "updated_at BIGINT,"
+                    + "signature TEXT"
+                    + ")");
+        }
+    }
+
+    private void deleteDatabaseBridgeRememberState(Connection connection, String table, String key) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE remember_key=?")) {
+            statement.setString(1, key);
+            statement.executeUpdate();
+        }
+    }
+
     private File getBridgeRememberFile(String playerName, UUID playerUuid) {
         File folder = bridgeFolder == null ? resolveBridgeFolder() : bridgeFolder;
         String safeName = (playerName == null ? "unknown" : playerName.toLowerCase(Locale.ROOT))
@@ -1707,6 +1990,13 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private void handleBackendJoin(Player player) {
+        if (backendPreVerified.remove(player.getUniqueId())) {
+            authenticated.add(player.getUniqueId());
+            showAllPlayers(player);
+            player.sendMessage(message(player, "backend-verified", "&a已确认你的登录验证状态，欢迎进入主服务器。"));
+            return;
+        }
+
         if (isBridgeVerificationEnabled()) {
             if (consumeBridgeTicket(player)) {
                 authenticated.add(player.getUniqueId());
@@ -1932,6 +2222,10 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     }
 
     private void transferToVerifiedDestination(Player player) {
+        if (isNativeTransferEnabled()) {
+            connectToNativeTransfer(player);
+            return;
+        }
         if (isProxyTransferEnabled()) {
             connectToProxyServer(player);
             return;
@@ -1942,7 +2236,21 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
     private boolean isProxyTransferEnabled() {
         boolean enabled = getConfig().getBoolean("multi-server.enabled", false);
         String mode = getConfig().getString("multi-server.transfer-mode", "local");
-        return enabled && mode != null && !"local".equals(mode.toLowerCase(Locale.ROOT));
+        if (!enabled || mode == null) {
+            return false;
+        }
+        String normalized = mode.toLowerCase(Locale.ROOT);
+        return "proxy".equals(normalized) || "velocity".equals(normalized) || "bungee".equals(normalized) || "bungeecord".equals(normalized);
+    }
+
+    private boolean isNativeTransferEnabled() {
+        boolean enabled = getConfig().getBoolean("multi-server.enabled", false);
+        String mode = getConfig().getString("multi-server.transfer-mode", "local");
+        if (!enabled || mode == null) {
+            return false;
+        }
+        String normalized = mode.toLowerCase(Locale.ROOT);
+        return "native-transfer".equals(normalized) || "native".equals(normalized) || "transfer".equals(normalized);
     }
 
     private String getTransferTargetName() {
@@ -1952,7 +2260,48 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
                 return targetServer;
             }
         }
+        if (isNativeTransferEnabled()) {
+            String host = getConfig().getString("multi-server.native-transfer.host", "");
+            int port = getConfig().getInt("multi-server.native-transfer.port", 25565);
+            if (host != null && !host.isBlank()) {
+                return host + ":" + port;
+            }
+        }
         return getConfig().getString("transfer-target-name", "Pureblock");
+    }
+
+    private void connectToNativeTransfer(Player player) {
+        String host = getConfig().getString("multi-server.native-transfer.host", "");
+        int port = getConfig().getInt("multi-server.native-transfer.port", 25565);
+        if (host == null || host.isBlank()) {
+            handleNativeTransferFailure(player, "native-transfer host is blank");
+            return;
+        }
+        if (port < 1 || port > 65535) {
+            handleNativeTransferFailure(player, "native-transfer port is out of range: " + port);
+            return;
+        }
+
+        try {
+            restoreLoginSnapshot(player);
+            player.getClass().getMethod("transfer", String.class, int.class).invoke(player, host, port);
+            player.sendMessage(message(player, "proxy-transfer-started",
+                    "&a身份验证通过，正在连接至 &d%server%&a。",
+                    "%server%", host + ":" + port));
+        } catch (NoSuchMethodException ex) {
+            handleNativeTransferFailure(player, "server API does not support Player#transfer(String, int)");
+        } catch (ReflectiveOperationException | IllegalArgumentException | SecurityException ex) {
+            handleNativeTransferFailure(player, ex.getMessage());
+        }
+    }
+
+    private void handleNativeTransferFailure(Player player, String reason) {
+        getLogger().warning("Could not transfer " + player.getName() + " through native-transfer mode: " + reason);
+        if (getConfig().getBoolean("multi-server.fallback-to-local-world", true)) {
+            teleportToMain(player);
+            return;
+        }
+        player.kickPlayer(message(player, "proxy-transfer-failed", "&c代理转服失败，请稍后重试。"));
     }
 
     private void connectToProxyServer(Player player) {
@@ -2349,6 +2698,15 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
             saveConfig();
             getLogger().info("Generated bridge-verification.secret. Use the same value on every LoginGate server in this network.");
         }
+        if (isDatabaseBridgeVerification()) {
+            try (Connection connection = openStorageConnection()) {
+                ensureBridgeTicketSchema(connection);
+                ensureBridgeRememberSchema(connection);
+            } catch (SQLException ex) {
+                getLogger().warning("Could not initialize database bridge verification: " + ex.getMessage());
+            }
+            return;
+        }
         bridgeFolder = resolveBridgeFolder();
         if (!bridgeFolder.exists() && !bridgeFolder.mkdirs()) {
             getLogger().warning("Could not create bridge verification folder: " + bridgeFolder.getAbsolutePath());
@@ -2363,7 +2721,20 @@ public final class LoginGatePlugin extends JavaPlugin implements Listener {
 
     private boolean isBridgeVerificationEnabled() {
         return getConfig().getBoolean("bridge-verification.enabled", false)
-                && "file".equalsIgnoreCase(getConfig().getString("bridge-verification.type", "file"));
+                && (isFileBridgeVerification() || isDatabaseBridgeVerification());
+    }
+
+    private boolean isFileBridgeVerification() {
+        String type = getConfig().getString("bridge-verification.type", "file");
+        return type == null || type.isBlank()
+                || "file".equalsIgnoreCase(type)
+                || "local".equalsIgnoreCase(type);
+    }
+
+    private boolean isDatabaseBridgeVerification() {
+        String type = getConfig().getString("bridge-verification.type", "file");
+        return "database".equalsIgnoreCase(type)
+                || "db".equalsIgnoreCase(type);
     }
 
     private boolean isLoginRole() {
