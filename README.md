@@ -1,10 +1,10 @@
 # LoginGate
 
-Current version: `v1.8.0`
+Current version: `v1.8.1`
 
 LoginGate is a Bukkit/Paper authentication lobby plugin. It sends players to a dedicated login world, handles registration and password verification, then releases verified players to the real server world or to another backend server.
 
-Version `1.8.0` adds a no-proxy Paper deployment mode:
+Version `1.8.0` adds a no-proxy Paper deployment mode. Version `1.8.1` reorganizes and clarifies the default config, especially the difference between player-data storage and bridge-ticket storage:
 
 - Login runs as the authentication server.
 - MC runs as the lobby/main backend server.
@@ -16,6 +16,8 @@ Version `1.8.0` adds a no-proxy Paper deployment mode:
 ```text
 未完成身份验证，请先登录！
 ```
+
+`storage.type: yaml` only controls player account records; `bridge-verification.directory` can still customize the file/local bridge-ticket directory.
 
 ## Compatibility
 
@@ -320,11 +322,11 @@ Existing values are kept. A backup such as `config.yml.backup-<timestamp>` is cr
 The current local test jar is:
 
 ```text
-build/LoginGate-1.8.0.jar
+build/LoginGate-1.8.1.jar
 ```
 
 The project currently uses a local javac argument file:
 
 ```text
-build/javac-1.8.0.args
+build/javac-1.8.1.args
 ```

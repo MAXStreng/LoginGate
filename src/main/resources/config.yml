@@ -1,17 +1,368 @@
-# 服务器显示名称，支持 Minecraft 颜色符号 &。
+# ============================================================
+# LoginGate 默认配置
+# ------------------------------------------------------------
+# 提示：
+# 1. Minecraft 颜色符号使用 &，例如 &a、&c、&l。
+# 2. 修改后使用 /logingate reload 或重启服务器生效。
+# 3. 玩家账号数据、桥接门票、语言文案是三类不同配置：
+#    - storage：玩家账号数据保存位置。
+#    - bridge-verification：双服/多服验证门票保存位置。
+#    - lang/zh.yml、lang/en.yml：多语言文案。
+# ============================================================
+
+
+# ============================================================
+# 1. 基础显示与语言
+# ============================================================
+
+# 服务器显示名称。可在消息占位符 %server% 中使用。
 server-name: "Pureblock | 纯境方块"
 
 # 默认语言。可选：zh、en。
 default-language: "zh"
 
-# 普通提示文案读取来源。lang=优先读取 lang/zh.yml 或 lang/en.yml；config=优先读取本文件的 messages/mail。
-# 想保留 /lang 中英文切换时建议使用 lang；只想改一个文件时可改为 config。
+# 普通提示文案读取来源。
+# lang：优先读取 lang/zh.yml 或 lang/en.yml，适合保留 /lang 切换功能。
+# config：优先读取本文件 messages/mail，适合只维护一个配置文件。
 message-source: "lang"
 
+
+# ============================================================
+# 2. 登录世界与登录后位置
+# ============================================================
+
+# 登录世界名称。
+# 留空时插件会根据 login-world-generation.type 自动创建：
+# void -> login_void，flat -> login_flat，normal -> login_normal。
+loginworld: ""
+
+# 兼容旧配置读取名。一般不需要填写；保留空值即可。
+login-world: ""
+
+# 主世界名称。单服 local 模式下，验证成功后会传送到这里。
+main-world: "world"
+
+# 传送倒计时中显示的目标名称，不一定要和世界名或子服名一致。
+transfer-target-name: "Pureblock"
+
+# 登录成功后传送到主世界或目标服务器前的倒计时秒数。
+post-login-countdown-seconds: 3
+
+post-login-location:
+  # 是否启用登录后位置策略。
+  # false 时始终传送到 main-world 的出生点。
+  enabled: true
+
+  # 登录后传送目标。
+  # spawn：主世界出生点，适合大厅/主城。
+  # last-location：玩家上次离线位置，需要 save-last-location 为 true。
+  mode: "spawn"
+
+  # 是否在玩家离线时记录最后位置。
+  save-last-location: true
+
+post-login-commands:
+  # 是否在玩家完成验证并到达目标位置后执行命令。
+  enabled: false
+
+  # 命令执行身份。
+  # console：后台执行。
+  # player：玩家自己执行。
+  executor: "console"
+
+  # 登录后执行的命令列表，不需要开头的 /。
+  # 支持占位符：%player%、%server%、%uuid%、%time%。
+  commands:
+    - "say %player% 已通过 LoginGate 验证"
+
+login-world-generation:
+  # 登录世界地形类型。
+  # void：虚空世界。
+  # flat：超平坦世界。
+  # normal：正常世界。
+  type: "void"
+
+login-world-settings:
+  # 兼容旧配置。true 时使用虚空生成器。
+  # 新服务器建议优先修改 login-world-generation.type。
+  void-world: true
+
+  # 是否隔离登录世界玩家状态。
+  # 开启后进入登录世界会临时处理背包、经验、药水、血量等状态，并在验证完成或退出时恢复。
+  isolate-player-state: true
+
+  # 登录世界临时游戏模式。可选：SURVIVAL、CREATIVE、ADVENTURE、SPECTATOR。
+  game-mode: "ADVENTURE"
+
+  # 进入登录世界时是否临时清空背包、装备和副手。
+  clear-inventory: true
+
+  # 进入登录世界时是否临时清空经验等级。
+  reset-exp: true
+
+  # 进入登录世界时是否临时清空药水效果。
+  clear-potion-effects: true
+
+  # 进入登录世界时是否临时重置血量、饥饿值、饱和度和燃烧状态。
+  reset-health-food: true
+
+  # 验证完成后是否允许恢复进入登录世界前的完整快照。
+  # false 时不会恢复背包、装备、模式、经验、药水等快照内容。
+  restore-snapshot: true
+
+  # 当 post-login-location.mode 为 spawn 时是否恢复完整快照。
+  # 默认 false，适合出生大厅/主城希望玩家保持干净状态的情况。
+  restore-snapshot-at-spawn: false
+
+  # 是否禁止登录世界刷新怪物。
+  disable-monster-spawn: true
+
+  # 是否禁止登录世界天气变化。
+  disable-weather-cycle: true
+
+  # 是否锁定登录世界时间。
+  lock-time: true
+
+  # 登录世界锁定的时间刻。18000 为夜晚。
+  time: 18000
+
+  # 是否让登录世界内玩家无敌。
+  invulnerable: true
+
+  # 是否冻结未验证玩家，防止移动和跳跃。
+  freeze-player: true
+
+  # 是否让登录世界内玩家互相不可见。
+  hide-other-players: true
+
+
+# ============================================================
+# 3. 验证、安全与限制
+# ============================================================
+
+# 登录密码最短长度。
+password-min-length: 8
+
+# 邮箱验证码位数。
+verification-code-length: 6
+
+# 邮箱验证码有效时间，单位：分钟。
+verification-expire-minutes: 10
+
+# 同一个邮箱重复获取验证码的冷却时间，单位：秒。
+email-code-cooldown-seconds: 60
+
+# 密码允许连续输错的最大次数。
+max-login-attempts: 3
+
+# 密码输错次数过多后的锁定时长，单位：分钟。
+login-lock-minutes: 3
+
+email-verification:
+  # 是否启用邮箱验证码。
+  # false 时注册、改密、改绑邮箱会跳过验证码环节。
+  enabled: true
+
+verification-code:
+  # 邮箱验证码允许连续输错的最大次数。
+  max-attempts: 3
+
+  # 验证码输错过多后的流程锁定时间，单位：分钟。
+  # 锁定时只发送聊天消息，不显示 title。
+  lock-minutes: 3
+
+email-unique:
+  # 是否限制一个邮箱只能绑定一个账号。
+  enabled: true
+
+password-strength:
+  # 是否要求密码包含至少一个大写字母。
+  require-uppercase: false
+
+  # 是否要求密码包含至少一个小写字母。
+  require-lowercase: false
+
+  # 是否要求密码包含至少一个数字。
+  require-number: false
+
+  # 是否要求密码包含至少一个符号。
+  require-symbol: false
+
+remember-session:
+  # 是否允许玩家自行开启记住登录。
+  # 玩家需要使用 /rememberlogin on 开启。
+  enabled: true
+
+  # 记住登录有效期，单位：分钟。
+  # 仅同 IP 且未过期时自动登录。
+  expire-minutes: 10
+
+security-log:
+  # 是否记录注册、登录、失败、锁定、改密、改绑、异常登录等安全日志。
+  enabled: true
+
+security-mail:
+  # 是否在改密、改绑邮箱、异常登录时发送安全提醒邮件。
+  # 需要 smtp.enabled 为 true 且 SMTP 可用。
+  enabled: true
+
+
+# ============================================================
+# 4. 单服/多服放行模式
+# ============================================================
+
+multi-server:
+  # 当前服务器角色。
+  # standalone：单服，登录世界和主世界在同一个服务端。
+  # login：登录服，只负责验证，验证后转到目标服务器。
+  # backend：主服/后端子服，负责校验登录服签发的桥接门票。
+  server-role: "standalone"
+
+  # 是否启用多服放行逻辑。
+  # false：验证成功后本地传送到 main-world。
+  # true：根据 transfer-mode 使用 proxy 或 native-transfer 转服。
+  enabled: false
+
+  # 验证成功后的放行方式。
+  # local：本地世界传送。
+  # proxy：通过 BungeeCord/Velocity 插件消息转服。
+  # native-transfer：使用 Paper/Minecraft 原生 transfer 转服。
+  transfer-mode: "local"
+
+  # proxy 模式下，代理端配置的目标子服名称。
+  target-server: "Pureblock"
+
+  native-transfer:
+    # native-transfer 模式下，目标服务器地址。
+    host: "127.0.0.1"
+
+    # native-transfer 模式下，目标服务器端口。
+    port: 25567
+
+  # proxy 模式使用的插件消息通道。
+  # BungeeCord 通常使用 BungeeCord。
+  # Velocity 可按代理配置改为 bungeecord:main。
+  plugin-message-channel: "BungeeCord"
+
+  # proxy/native-transfer 转服失败时是否回退到本地 main-world。
+  # 如果登录服没有主世界，建议设置为 false。
+  fallback-to-local-world: true
+
+  # backend 角色接受最近多少秒内完成验证的玩家。
+  backend-verified-window-seconds: 300
+
+
+# ============================================================
+# 5. 桥接验证门票
+# ------------------------------------------------------------
+# 这部分只负责 Login 服和 MC/后端服之间传递“已完成验证”的短期门票。
+# 它和 storage.type 是两套配置：
+# - storage.type: yaml 仍然可以自定义门票文件夹。
+# - bridge-verification.directory 才是 file/local 门票目录。
+# ============================================================
+
+bridge-verification:
+  # 是否启用桥接验证。
+  # login 角色会签发门票，backend 角色会校验门票。
+  enabled: false
+
+  # 桥接门票保存方式。
+  # file/local：写入本地文件夹，适合同一台机器上的双服。
+  # database/db：写入数据库，适合多机器或希望集中管理。
+  type: "file"
+
+  # file/local 模式下的门票文件夹位置。
+  # 可写相对路径或绝对路径：
+  # - 相对路径：相对于 plugins/LoginGate/，例如 "LoginGateBridge"。
+  # - 绝对路径：例如 "C:/Servers/LoginGateBridge"。
+  # 双服模式下，Login 服和 MC/后端服必须填写同一个目录。
+  directory: "LoginGateBridge"
+
+  database:
+    # database/db 模式下的门票表名。
+    ticket-table: "logingate_bridge_tickets"
+
+    # database/db 模式下的记住登录状态表名。
+    remember-table: "logingate_bridge_remember"
+
+  # HMAC 签名密钥。
+  # 首次启用且留空时会自动生成；双服/多服所有 LoginGate 实例必须完全一致。
+  secret: ""
+
+  # 后端服校验门票时，是否要求玩家 IP 和登录服签发时一致。
+  require-ip-match: true
+
+  # 后端服校验门票时，是否要求 Minecraft UUID 和登录服签发时一致。
+  require-uuid-match: true
+
+  # 后端服校验成功后是否立即删除门票，防止重复使用。
+  consume-on-success: true
+
+  # 玩家绕过登录服直接进入后端服时的踢出提示。
+  illegal-bypass-kick: "&c&l您目前的身份验证状态为：非法绕过身份验证！"
+
+
+# ============================================================
+# 6. 玩家账号数据存储
+# ------------------------------------------------------------
+# 注意：这里保存的是玩家账号、密码哈希、邮箱、登录记录等数据。
+# 验证门票文件夹请看上面的 bridge-verification.directory。
+# ============================================================
+
+storage:
+  # 玩家账号数据存储方式。
+  # yaml：默认本地 YAML 文件，路径为 plugins/LoginGate/PlayerInfo/players.yml。
+  # sqlite：本地 SQLite 数据库。
+  # mysql/mariadb：远程 MySQL 或 MariaDB 数据库。
+  type: "yaml"
+
+  sqlite:
+    # SQLite 数据库文件位置，相对插件数据目录 plugins/LoginGate/。
+    file: "PlayerInfo/players.db"
+
+  mysql:
+    # MySQL/MariaDB 地址。
+    host: "localhost"
+
+    # MySQL/MariaDB 端口。
+    port: 3306
+
+    # 数据库名。
+    database: "logingate"
+
+    # 数据库用户名。
+    username: "root"
+
+    # 数据库密码。
+    password: ""
+
+    # 可选自定义 JDBC URL。
+    # 留空时按 host、port、database 自动生成。
+    jdbc-url: ""
+
+
+# ============================================================
+# 7. 更新检查
+# ============================================================
+
+update-check:
+  # 是否在插件启动时检查 GitHub 最新版本。
+  enabled: true
+
+  # 公开更新清单地址。
+  # 默认使用 raw.githubusercontent.com，不依赖 GitHub API，也不需要 Token。
+  manifest-url: "https://raw.githubusercontent.com/MAXStreng/LoginGate/main/update.json"
+
+
+# ============================================================
+# 8. 消息开关
+# ------------------------------------------------------------
+# default 控制普通 messages 文案的默认启用状态。
+# 下方单项开关可覆盖 default。false 表示该条 messages 文案不发送。
+# ============================================================
+
 message-toggles:
-  # 普通 messages 文案默认是否启用。单独设置某个 key 时会覆盖这里。
   default: true
-  # 下方每个 key 都对应 messages 里的一条普通提示，可按需改为 false。
   welcome-title: true
   welcome-register-subtitle: true
   welcome-login-subtitle: true
@@ -93,401 +444,142 @@ message-toggles:
   lang-unknown: true
   lang-changed: true
   suspicious-login: true
-# 绑定登录世界名称。留空时插件会按 login-world-generation.type 自动创建 login_void、login_flat 或 login_normal。
-loginworld: ""
 
-# 主世界名称，登录或注册完成后会传送到这里。
-main-world: "world"
 
-# 传送倒计时中显示的目标名称。
-transfer-target-name: "Pureblock"
-
-post-login-location:
-  # 是否启用登录后传送位置策略。关闭时始终使用 main-world 出生点。
-  enabled: true
-  # 登录后传送目标。spawn=服务器出生大厅；last-location=玩家上次离开服务器时的位置。
-  mode: "spawn"
-  # 是否记录玩家离开服务器时所在的位置。使用 last-location 模式时需要开启。
-  save-last-location: true
-
-post-login-commands:
-  # 是否在玩家完成登录并传送到主世界后执行命令。
-  enabled: false
-  # 命令执行身份。console=后台执行；player=玩家执行。
-  executor: "console"
-  # 登录后执行的命令列表，不需要写开头的 /。支持 %player%、%server%、%uuid%、%time%。
-  commands:
-    - "say %player% 已通过 LoginGate 验证"
-
-multi-server:
-  # 当前服务器角色。standalone=单服，login=登录服，backend=主服/后端子服。
-  server-role: "standalone"
-  # 多服兼容模式。关闭时使用本地 main-world 传送；开启后通过代理插件消息转发到目标子服。
-  enabled: false
-  # 放行模式。local=本地世界传送，proxy=通过 BungeeCord/Velocity 代理转服，native-transfer=使用 Minecraft 原生 transfer 转服。
-  transfer-mode: "local"
-  # 代理端配置的目标子服名称，开启 proxy 模式后会连接到这里。
-  target-server: "Pureblock"
-  native-transfer:
-    # 原生 transfer 目标服务器地址。客户端必须支持 transfer，且目标服版本应与登录服兼容。
-    host: "127.0.0.1"
-    # 原生 transfer 目标服务器端口。
-    port: 25567
-  # 插件消息通道。BungeeCord 常用 BungeeCord；Velocity 可按代理设置改为 bungeecord:main。
-  plugin-message-channel: "BungeeCord"
-  # 代理转服失败时是否回退到本地 main-world。
-  fallback-to-local-world: true
-  # 后端子服接受最近多少秒内完成登录验证的玩家。
-  backend-verified-window-seconds: 300
-
-bridge-verification:
-  # 是否启用登录服到主服的本地桥接验证。用于 Login 子服签发通行证、MC 主服校验通行证。
-  enabled: false
-  # 桥接方式。file/local=本地文件票据；database/db=数据库票据。
-  # database 模式复用下方 storage.sqlite/mysql 配置；storage.type 为 yaml 时默认使用 storage.sqlite.file。
-  type: "file"
-  # 本地桥接目录，仅 file/local 模式使用。登录服和主服必须填写同一个目录，可写绝对路径。
-  directory: "LoginGateBridge"
-  database:
-    # 数据库模式使用的票据表名。
-    ticket-table: "logingate_bridge_tickets"
-    # 数据库模式使用的记住登录桥接状态表名。
-    remember-table: "logingate_bridge_remember"
-  # HMAC 签名密钥。首次启用且留空时会自动生成；登录服和主服必须完全一致。
-  secret: ""
-  # 主服校验时是否要求 IP 与登录服签发通行证时一致。
-  require-ip-match: true
-  # 主服校验时是否要求 Minecraft UUID 与登录服签发通行证时一致。
-  require-uuid-match: true
-  # 主服校验通过后是否立即删除通行证，防止重复使用。
-  consume-on-success: true
-  # 玩家绕过登录服直接进入主服时的踢出提示。
-  illegal-bypass-kick: "&c&l您目前的身份验证状态为：非法绕过身份验证！"
-
-# 登录成功后传送到主世界前的倒计时秒数。
-post-login-countdown-seconds: 3
-
-# 登录密码最短长度。
-password-min-length: 8
-
-# 邮箱验证码位数。
-verification-code-length: 6
-
-# 邮箱验证码有效时间，单位为分钟。
-verification-expire-minutes: 10
-
-# 密码输错次数过多后的锁定时长，单位为分钟。
-login-lock-minutes: 3
-
-# 密码允许连续输错的最大次数。
-max-login-attempts: 3
-
-# 同一个邮箱重复获取验证码的冷却时间，单位为秒。
-email-code-cooldown-seconds: 60
-
-email-verification:
-  # 是否启用邮箱验证码验证。关闭后注册、改密、改绑邮箱会跳过验证码环节。
-  enabled: true
-
-remember-session:
-  # 是否允许玩家自行开启记住登录。玩家默认关闭，需要使用 /rememberlogin on。
-  enabled: true
-  # 记住登录有效期，单位为分钟。仅同 IP 且未过期时自动登录。
-  expire-minutes: 10
-
-verification-code:
-  # 邮箱验证码允许连续输错的最大次数。
-  max-attempts: 3
-  # 验证码输错过多后的流程锁定时间，单位为分钟。锁定只发送聊天消息，不显示 title。
-  lock-minutes: 3
-
-email-unique:
-  # 是否限制一个邮箱只能绑定一个账号。
-  enabled: true
-
-password-strength:
-  # 是否要求密码包含大写字母。
-  require-uppercase: false
-  # 是否要求密码包含小写字母。
-  require-lowercase: false
-  # 是否要求密码包含数字。
-  require-number: false
-  # 是否要求密码包含符号。
-  require-symbol: false
-
-security-log:
-  # 是否记录注册、登录、失败、锁定、改密、改绑、异常登录等安全日志。
-  enabled: true
-
-security-mail:
-  # 是否在改密、改绑邮箱、异常登录时发送安全提醒邮件。需要 SMTP 可用。
-  enabled: true
-
-storage:
-  # 玩家数据存储方式。yaml=默认本地文件，sqlite=本地数据库，mysql/mariadb=远程数据库。
-  type: "yaml"
-  sqlite:
-    # SQLite 数据库文件位置，相对插件数据目录。
-    file: "PlayerInfo/players.db"
-  mysql:
-    # MySQL/MariaDB 地址。
-    host: "localhost"
-    # MySQL/MariaDB 端口。
-    port: 3306
-    # 数据库名。
-    database: "logingate"
-    # 数据库用户名。
-    username: "root"
-    # 数据库密码。
-    password: ""
-    # 可选自定义 JDBC URL。留空时按上方信息自动生成。
-    jdbc-url: ""
-
-update-check:
-  # 是否在插件启动时检查 GitHub 最新版本。
-  enabled: true
-  # 公开更新清单地址。默认使用 raw.githubusercontent.com，不依赖 GitHub API，也不需要 Token。
-  manifest-url: "https://raw.githubusercontent.com/MAXStreng/LoginGate/main/update.json"
-
-login-world-generation:
-  # 登录世界地形类型。可选：void（虚空）、flat（超平坦）、normal（正常世界）。默认虚空。
-  type: "void"
-
-login-world-settings:
-  # 兼容旧配置：为 true 时也会使用虚空生成器；新配置请优先使用 login-world-generation.type。
-  void-world: true
-  # 是否隔离登录世界玩家状态。开启后进入登录世界会临时清空物品、经验、效果并使用登录专用游戏模式，登录成功或退出时恢复原状态。
-  isolate-player-state: true
-  # 登录世界内临时使用的游戏模式，可选 SURVIVAL、CREATIVE、ADVENTURE、SPECTATOR。
-  game-mode: "ADVENTURE"
-  # 登录世界是否临时清空背包、装备和副手。
-  clear-inventory: true
-  # 登录世界是否临时清空经验等级。
-  reset-exp: true
-  # 登录世界是否临时清空药水效果。
-  clear-potion-effects: true
-  # 登录成功恢复玩家状态时是否允许恢复完整快照。关闭后任何登录后传送都不恢复背包、模式、经验、药水效果等快照内容。
-  restore-snapshot: true
-  # 当 post-login-location.mode 为 spawn 时是否恢复完整快照。默认 false，适合出生大厅/主城使用干净状态。
-  restore-snapshot-at-spawn: false
-  # 登录世界是否临时重置血量、饥饿值、饱和度和燃烧状态。
-  reset-health-food: true
-  # 是否禁止登录世界刷新怪物。
-  disable-monster-spawn: true
-  # 是否禁止登录世界天气更替。
-  disable-weather-cycle: true
-  # 是否锁定登录世界时间。
-  lock-time: true
-  # 登录世界锁定的时间刻，18000 为夜晚。
-  time: 18000
-  # 是否让登录世界内玩家无敌。
-  invulnerable: true
-  # 是否冻结未验证玩家，防止移动和跳跃。
-  freeze-player: true
-  # 是否让登录世界玩家互相不可见。
-  hide-other-players: true
+# ============================================================
+# 9. 普通提示文案
+# ------------------------------------------------------------
+# 当 message-source 为 config 时，优先使用这里的 messages。
+# 当 message-source 为 lang 时，建议修改 lang/zh.yml 和 lang/en.yml。
+# 常用占位符：
+# %player% 玩家名，%server% 服务器显示名，%time% 当前时间。
+# 具体条目还可能支持 %email%、%min%、%left%、%seconds%、%target%、%uuid% 等。
+# ============================================================
 
 messages:
-  # 兼容旧版与单文件配置模式：当 message-source 为 config 时，这里的普通提示文案优先于 lang 文件。
-  # 当 message-source 为 lang 时，普通提示请优先修改 plugins/LoginGate/lang/zh.yml 或 lang/en.yml。
-  # 欢迎界面的主标题。
   welcome-title: "&d&lPureblock &8| &b纯境方块"
-  # 未注册玩家看到的欢迎副标题。
   welcome-register-subtitle: "&7欢迎抵达身份验证大厅，输入 &e/register &7创建通行证"
-  # 已注册玩家看到的欢迎副标题。
   welcome-login-subtitle: "&7欢迎回来，输入 &e/login &7进入主世界"
-  # 注册流程：输入邮箱阶段标题。
   title-register-email: "&d&l邮箱注册"
-  # 注册流程：输入邮箱阶段副标题。
   subtitle-register-email: "&7请在聊天栏输入 &b邮箱地址"
-  # 注册流程：输入验证码阶段标题。
   title-register-code: "&b&l验证码确认"
-  # 注册流程：输入验证码阶段副标题。
   subtitle-register-code: "&7请输入邮箱收到的 &e验证码"
-  # 注册流程：设置密码阶段标题。
   title-register-password: "&a&l设置密码"
-  # 注册流程：设置密码阶段副标题，%min% 为最短密码长度。
   subtitle-register-password: "&7请设置至少 &e%min% &7位的登录密码"
-  # 登录流程：输入密码阶段标题。
   title-login-password: "&b&l身份登录"
-  # 登录流程：输入密码阶段副标题。
   subtitle-login-password: "&7请输入你的 &e登录密码"
-  # 修改密码流程：输入验证码阶段标题。
   title-change-code: "&e&l修改密码"
-  # 修改密码流程：输入验证码阶段副标题。
   subtitle-change-code: "&7请输入邮箱收到的 &e改密验证码"
-  # 修改密码流程：设置新密码阶段标题。
   title-change-password: "&a&l设置新密码"
-  # 修改密码流程：设置新密码阶段副标题。
   subtitle-change-password: "&7请设置新的 &e登录密码"
-  # 修改密码流程：直接输入新密码提示。
   input-new-password: "&d&lPureblock &8| &7请在聊天栏输入新的 &e登录密码&7。"
-  # 登录锁定时显示的标题。
   locked-title: "&c&l验证锁定"
-  # 登录锁定时显示的副标题，%seconds% 为剩余秒数。
   locked-subtitle: "&7请等待 &e%seconds% &7秒"
-  # 登录成功传送倒计时标题。
   transfer-title: "&a&l身份验证完成"
-  # 登录成功传送倒计时副标题，%seconds% 为剩余秒数，%target% 为目标名称。
   transfer-subtitle: "&b%seconds% &7秒后传送至 &d%target%"
-  # 未注册玩家加入后的聊天提示。
   register-help: "&d&lPureblock &8| &7欢迎来到 &b纯境方块&7。请输入 &e/register &7开始邮箱注册。"
-  # 已注册玩家加入后的聊天提示，%player% 为玩家名。
   login-help: "&d&lPureblock &8| &7欢迎回来，&b%player%&7。请输入 &e/login &7完成身份验证。"
-  # 提示玩家输入邮箱。
   input-email: "&d&lPureblock &8| &7请在聊天栏输入你的 &b邮箱地址&7，该内容不会广播。"
-  # 提示玩家输入密码。
   input-password: "&d&lPureblock &8| &7请在聊天栏输入 &e登录密码&7，该内容不会广播。"
-  # 注册验证码已发送提示，%email% 为邮箱。
-  register-code-sent: "&b验证码已发送到 &e%email%&b。&7请在聊天栏输入验证码。"
-  # 改绑邮箱验证码已发送提示，%email% 为邮箱。
-  bind-code-sent: "&b验证码已发送到 &e%email%&b。&7请输入验证码完成改绑。"
-  # 修改密码验证码已发送提示。
-  change-code-sent: "&b验证码已发送到你的注册邮箱。&7请在聊天栏输入验证码。"
-  # 提示玩家在聊天栏输入新的绑定邮箱。
   input-bind-email: "&d&lPureblock &8| &7请在聊天栏输入你要绑定的新 &b邮箱地址&7。"
-  # 邮箱格式错误提示。
+  register-code-sent: "&b验证码已发送到 &e%email%&b。&7请在聊天栏输入验证码。"
+  bind-code-sent: "&b验证码已发送到 &e%email%&b。&7请输入验证码完成改绑。"
+  change-code-sent: "&b验证码已发送到你的注册邮箱。&7请在聊天栏输入验证码。"
   invalid-email: "&c邮箱格式不正确，请重新输入。"
-  # 验证码错误或过期提示。
   invalid-code: "&c验证码不正确或已过期，请重新开始流程。"
-  # 验证码失败页标题。
   verification-failed-title: "&c&l验证失败"
-  # 验证码错误时的副标题。
   verification-invalid-subtitle: "&7验证码不正确，请重新开始流程。"
-  # 验证码过期时的副标题。
   verification-expired-subtitle: "&7验证码已过期，请重新开始流程。"
-  # 验证码错误时的聊天提示。
   verification-invalid-chat: "&c验证码不正确，请重新开始流程。"
-  # 验证码过期时的聊天提示。
   verification-expired-chat: "&c验证码已过期，请重新开始流程。"
-  # 注册邮箱验证通过后提示。
   code-ok-set-password: "&a邮箱验证成功。&7请设置登录密码。"
-  # 修改密码邮箱验证通过后提示。
   code-ok-reset-password: "&a邮箱验证成功。&7请设置新密码。"
-  # 邮箱验证码验证关闭时的跳过提示。
   email-verification-skipped: "&a邮箱验证已关闭，已跳过验证码步骤。"
-  # 邮箱验证关闭时，未登录玩家不能直接改密。
   change-password-login-required: "&c邮箱验证关闭时，必须先登录才能修改密码。"
-  # 注册成功提示，%uuid% 为插件生成的 Pureblock UUID。
   register-success: "&a注册成功。&7你的 Pureblock UUID 为 &d%uuid%&7。"
-  # 邮箱改绑成功提示，%old% 为旧邮箱，%new% 为新邮箱。
   bind-success: "&a邮箱绑定成功。&7已从 &e%old% &7更新为 &b%new%&7。"
-  # 验证成功后提示。
   verification-success: "&a验证成功。&7欢迎进入 &dPureblock &8| &b纯境方块&a。"
-  # 老玩家登录成功提示，%player% 为玩家名，%time% 为上次登录时间。
   welcome-back: "&d&lPureblock &8| &a欢迎回来 &b%player%&a！&7您上次成功登录的时间为：&e%time%"
-  # 玩家首次成功登录提示。
   first-login: "&d&lPureblock &8| &a欢迎回来 &b%player%&a！这是你第一次完成登录验证。"
-  # 密码错误提示，%left% 为剩余尝试次数。
   password-wrong: "&c密码错误。剩余尝试次数：&e%left%"
-  # 登录被锁定时的聊天提示。
   login-locked: "&c密码错误次数过多，登录已锁定。"
-  # 密码太短提示，%min% 为最短密码长度。
   password-too-short: "&c密码太短，至少需要 &e%min% &c位。"
-  # 密码修改成功提示。
   password-changed: "&a密码修改成功。请使用 &e/login &a重新登录。"
-  # 密码缺少大写字母提示。
   password-require-uppercase: "&c密码需要至少包含一个大写字母。"
-  # 密码缺少小写字母提示。
   password-require-lowercase: "&c密码需要至少包含一个小写字母。"
-  # 密码缺少数字提示。
   password-require-number: "&c密码需要至少包含一个数字。"
-  # 密码缺少符号提示。
   password-require-symbol: "&c密码需要至少包含一个符号。"
-  # 邮箱验证码获取冷却提示，%seconds% 为剩余秒数。
   email-cooldown: "&c&l短时间内获取多次验证码，请等待 &a%seconds% &c&l秒后重新操作！"
-  # 邮箱已被其他账号使用。
   email-already-used: "&c该邮箱已经绑定其他账号。"
-  # 验证码错误但未锁定，%left% 为剩余次数。
   verification-code-wrong: "&c验证码不正确，剩余尝试次数：&e%left%"
-  # 验证码错误次数过多后的聊天提示，%seconds% 为剩余秒数。
   verification-code-locked: "&c验证码错误次数过多，请等待 &e%seconds% &c秒后重新操作。"
-  # 已注册玩家重复注册提示。
   already-registered: "&a你已经完成注册。请使用 &e/login &a登录。"
-  # 未注册玩家登录或改密提示。
   not-registered: "&c你还没有注册。请先使用 &e/register&c。"
-  # 已登录玩家在主世界使用登录指令时的提示，%player% 为玩家名。
   already-logged-in: "&a您已经以 &b%player% &a的身份登录成功了！"
-  # 已登录玩家改绑邮箱时的前置提示。
   bindemail-verified-only: "&c请先完成登录后再修改绑定邮箱。"
-  # 未验证玩家使用非白名单指令时的提示。
   command-blocked: "&c验证前只能在登录世界使用 &e/register&c、&e/login &c或 &e/changepwd&c。"
-  # 未验证玩家聊天时的提示。
   chat-blocked: "&c验证前不能聊天。请使用 &e/register &c或 &e/login&c。"
-  # 未验证玩家进入主世界时的踢出提示。
   unverified-kick: "&c未完成 Pureblock 身份验证，无法进入主世界。"
-  # 主世界缺失时的踢出提示。
   main-world-missing: "&c主世界不存在，无法完成登录。"
-  # 代理转服消息已发送时的提示，%server% 为目标子服名称。
   proxy-transfer-started: "&a身份验证通过，正在连接至 &d%server%&a。"
-  # 代理转服失败且未启用本地回退时的踢出提示。
   proxy-transfer-failed: "&c代理转服失败，请稍后重试。"
-  # 后端子服确认玩家已完成登录验证。
   backend-verified: "&a已确认你的登录验证状态，欢迎进入主服务器。"
-  # 后端子服未检测到有效登录验证记录时的踢出提示。
   backend-unverified-kick: "&c未检测到有效登录验证记录，请先进入登录服务器完成验证。"
-  # 玩家开启记住登录成功，%minutes% 为有效期。
   remember-login-enabled: "&a已开启记住登录。有效期：&e%minutes% &a分钟。"
-  # 玩家关闭记住登录成功。
   remember-login-disabled-player: "&a已关闭记住登录。下次进入仍需输入密码。"
-  # 服务器未启用记住登录。
   remember-login-disabled: "&c服务器未启用记住登录功能。"
-  # 记住登录命令格式。
   remember-login-usage: "&e用法：/rememberlogin on 或 /rememberlogin off"
-  # 玩家未登录时使用记住登录命令。
   remember-login-login-required: "&c请先完成登录后再设置免登录会话。"
-  # 自动免登录成功。
   remember-login-success: "&a已使用记住登录会话自动完成验证。"
-  # 管理员未登录时使用管理命令。
   admin-login-required: "&c管理员也需要先完成登录验证。"
-  # SMTP 邮件发送成功提示。
   mail-sent: "&a验证码邮件已发送，请查收邮箱。"
-  # SMTP 邮件发送失败提示。
   mail-failed: "&c邮件发送失败，请让管理员检查 SMTP 配置。测试验证码已写入后台日志。"
-  # 切换语言命令格式提示。
   lang-usage: "&e用法：/lang zh 或 /lang en"
-  # 切换到不支持语言时的提示，%lang% 为玩家输入的语言。
   lang-unknown: "&c暂不支持语言 &e%lang%&c。可用语言：&e/lang zh &7或 &e/lang en"
-  # 语言切换成功提示，%lang% 为语言代码。
   lang-changed: "&a语言已切换为：&e%lang%"
-  # 登录环境异常提示，%ip% 为当前 IP。
   suspicious-login: "&e检测到新的登录环境：&6%ip%&e。若这不是你本人操作，请尽快修改密码。"
 
 mail:
-  # 注册邮件标题。
+  # 邮件标题。邮件正文由插件按验证码/安全提醒自动生成。
   register-subject: "Pureblock 注册验证码"
-  # 修改密码邮件标题。
   change-subject: "Pureblock 修改密码验证码"
-  # 改绑邮箱邮件标题。
   bind-subject: "Pureblock 改绑邮箱验证码"
-  # 安全提醒邮件标题。
   security-subject: "Pureblock 安全提醒"
 
+
+# ============================================================
+# 10. 状态消息与自定义消息
+# ============================================================
+
 state-messages:
-  # 玩家首次进入登录世界时的消息组。
   first-enter:
+    # 玩家首次进入登录世界时发送。
     enabled: true
     messages:
       - "&d&lPureblock &8| &b纯境方块"
       - "&7这里是登录专用大厅，请使用 &e/register &7创建账户。"
-  # 玩家已注册但尚未登录时的消息组。
+
   logging-in:
+    # 玩家已注册但尚未登录时发送。
     enabled: true
     messages:
       - "&d&lPureblock &8| &b纯境方块"
       - "&7欢迎回来，请使用 &e/login &7完成身份验证。"
-  # 玩家验证成功后的消息组。
+
   verification-success:
+    # 玩家验证成功后发送。
     enabled: true
     messages:
       - "&a验证状态已更新。"
-  # 玩家被锁定时的消息组。
+
   locked:
+    # 玩家被登录锁定时发送。
     enabled: true
     messages:
       - "&c密码错误次数过多，验证已锁定。"
-  # 玩家改绑邮箱成功后的消息组。
+
   bind-success:
+    # 玩家改绑邮箱成功后发送。
     enabled: true
     messages:
       - "&a邮箱改绑流程已完成。"
@@ -496,43 +588,55 @@ custom-messages:
   on-join:
     # 玩家上线时是否发送自定义消息。
     enabled: true
-    # 玩家上线时发送的自定义消息列表。
     messages:
       - "&8&m--------------------------------------------------"
       - "&d&lPureblock &8| &b纯境方块 &7身份验证系统"
       - "&7请根据屏幕提示完成登录或注册。"
       - "&8&m--------------------------------------------------"
+
   after-login:
     # 玩家登录成功后是否发送自定义消息。
     enabled: true
-    # 玩家登录成功后发送的自定义消息列表。
     messages:
       - "&a身份验证通过，欢迎进入 &dPureblock &8| &b纯境方块&a。"
       - "&7愿你在这片纯净世界里留下漂亮的建筑。"
+
   after-register:
     # 玩家注册成功后是否发送新手指引。
     enabled: true
-    # 玩家注册成功后发送的新手指引消息列表。
     messages:
       - "&a注册成功，欢迎加入 &dPureblock &8| &b纯境方块&a。"
       - "&7请留意服务器规则，并在需要时使用 &e/bindemail &7修改绑定邮箱。"
 
+
+# ============================================================
+# 11. SMTP 邮件发送
+# ============================================================
+
 smtp:
   # 是否启用 SMTP 邮件发送。
   enabled: false
+
   # SMTP 服务器地址。
   host: "smtp.example.com"
-  # SMTP 服务器端口，常见 SSL 端口为 465。
+
+  # SMTP 服务器端口。常见 SSL 端口为 465，STARTTLS 常见端口为 587。
   port: 465
+
   # 是否使用 SSL 直连。
   ssl: true
+
   # 是否在非 SSL 连接上启用 STARTTLS。
   starttls: false
+
   # SMTP 登录用户名，通常是邮箱地址。
   username: "your@example.com"
-  # SMTP 登录密码，很多邮箱需要填写授权码而不是邮箱登录密码。
+
+  # SMTP 登录密码。很多邮箱需要填写授权码或应用专用密码，不是邮箱登录密码。
   password: "change-me"
+
   # 邮件发件人地址。
   from: "your@example.com"
+
   # 邮件发件人显示名称。
   from-name: "Pureblock"

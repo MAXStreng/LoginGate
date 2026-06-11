@@ -1,5 +1,5 @@
 {
-  "version": "v1.8.0",
-  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.8.0",
-  "body": "新增 Paper 原生 transfer 模式。登录服验证成功后签发 HMAC 桥接票据并 transfer 到主服；主服在 pre-login 阶段校验票据，未完成身份验证的直连玩家会被拒绝。桥接票据支持 file/local 本地文件模式和 database/db 数据库模式，本地模式可自定义票据目录，数据库模式复用 storage.sqlite/mysql 配置。"
+  "version": "v1.8.1",
+  "url": "https://github.com/MAXStreng/LoginGate/releases/tag/LoginGate-1.8.1",
+  "body": "优化默认 config.yml 结构和中文注释，按基础设置、登录世界、验证安全、多服放行、桥接验证门票、玩家账号存储、消息和 SMTP 分区整理。明确说明 storage 仅用于玩家账号数据，bridge-verification.directory 可在 yaml 存储模式下自定义 file/local 门票目录。"
 }
